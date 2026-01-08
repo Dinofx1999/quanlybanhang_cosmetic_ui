@@ -4,7 +4,7 @@ import { getCurrentUser, getToken } from "./authService"; // ✅ đảm bảo c�
 import { getActiveBranchId } from "./branchContext";
 
 const api = axios.create({
-  baseURL: "http://localhost:3000/api",
+  baseURL: process.env.REACT_APP_API_URL || "http://localhost:3000/api",
   timeout: 20000,
 });
 
