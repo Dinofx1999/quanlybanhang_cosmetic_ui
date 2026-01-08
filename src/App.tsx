@@ -299,7 +299,7 @@ const App: React.FC = () => {
   // POS checkout handled inside POSSection now (order create/confirm flow)
   const completeOrder = (): void => {
     // kept for compatibility, POSSection will call its own flow or call this if you want
-    alert("POSSection sẽ xử lý quy trình tạo/confirm order theo API /orders.");
+    // alert("POSSection sẽ xử lý quy trình tạo/confirm order theo API /orders.");
   };
 
   return (
