@@ -143,7 +143,7 @@ const Layout: React.FC<LayoutProps> = ({ currentUser }) => {
     setActiveBranchId(val);
 
     // Optional: nếu bạn muốn reload trang để các page fetch lại theo branch
-    // window.location.reload();
+    window.location.reload();
   };
 
   return (

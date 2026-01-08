@@ -55,7 +55,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-3">
               <span className="text-3xl">💄</span>
             </div>
-            <h1 className="text-2xl font-bold text-white">Beauty Shop</h1>
+            <h1 className="text-2xl font-bold text-white">Bảo Ân Cosmetic</h1>
             <p className="text-pink-100 text-sm mt-1">Đăng nhập hệ thống</p>
           </div>
 
@@ -157,7 +157,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
         {/* Footer */}
         <p className="text-center mt-4 text-sm text-gray-600">
-          © 2024 Beauty Shop
+          © 2024 Dino - Bảo Ân Cosmetic
         </p>
       </div>
     </div>

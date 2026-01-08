@@ -78,6 +78,7 @@ const App: React.FC = () => {
   // ✅ products from API
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
+    const [toast, setToast] = React.useState<Record<string, string>>({});
 
   const [activeOrders, setActiveOrders] = useState<Order[]>([
     {
@@ -104,12 +105,31 @@ const App: React.FC = () => {
       setCurrentUser(getCurrentUser());
     }
   }, []);
-
+   const showToast = (pid: string, text: string) => {
+    setToast((m) => ({ ...m, [pid]: text }));
+    window.setTimeout(() => {
+      setToast((m) => {
+        const n = { ...m };
+        delete n[pid];
+        return n;
+      });
+    }, 900);
+  };
   const handleLoginSuccess = (data: any): void => {
     setIsLoggedIn(true);
     setCurrentUser(data.user || getCurrentUser());
   };
-
+  // ✅ optimistic stock reduce after sold
+const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number }>) => {
+  setProducts((prev) =>
+    (prev || []).map((p) => {
+      const hit = soldItems.find((x) => String(x.productId) === String(p._id));
+      if (!hit) return p;
+      const nextStock = Math.max(0, Number(p.stock || 0) - Number(hit.qty || 0));
+      return { ...p, stock: nextStock };
+    })
+  );
+};
   // ===============================
   // Fetch products API
   // ===============================
@@ -118,6 +138,7 @@ const App: React.FC = () => {
     try {
       const res = await api.get("/products"); // baseURL = http://localhost:3000/api
       const items = res.data?.items || [];
+      items.sort((a: any, b: any) => b.stock - a.stock);
 
       const mapped: Product[] = items.map((p: any) => ({
         _id: String(p._id),
@@ -129,7 +150,7 @@ const App: React.FC = () => {
         cost: p.cost !== undefined ? Number(p.cost || 0) : undefined,
         brand: p.brand || "",
         barcode: p.barcode || "",
-        stock: 0, // ✅ tạm thời
+        stock: p.stock || 0, // ✅ tạm thời
         thumbnail: p.thumbnail || "",
         images: Array.isArray(p.images) ? p.images : [],
         isActive: p.isActive !== false,
@@ -265,7 +286,7 @@ const App: React.FC = () => {
       createNewOrder();
     }
 
-    alert(`✓ Đơn hàng ${currentOrder.orderNumber} đã thanh toán!`);
+    // alert(`✓ Đơn hàng ${currentOrder.orderNumber} đã thanh toán!`);
   };
 
   const deleteOrder = (orderId: number): void => {
@@ -311,12 +332,16 @@ const App: React.FC = () => {
                 createNewOrder={createNewOrder}
                 deleteOrder={deleteOrder}
                 addToCart={addToCart}
-                updateQuantity={updateQuantity} // ✅ string
-                removeFromCart={removeFromCart} // ✅ string
+                updateQuantity={updateQuantity}
+                removeFromCart={removeFromCart}
                 updateCustomerName={updateCustomerName}
                 getTotal={getTotal}
                 completeOrder={completeOrder}
                 getCurrentOrder={getCurrentOrder}
+
+                // ✅ NEW
+                refreshProducts={fetchProducts}
+                onSoldAdjustStock={adjustStockAfterSold}
               />
             }
           />
