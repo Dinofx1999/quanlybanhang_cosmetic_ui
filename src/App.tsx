@@ -12,9 +12,10 @@ import RevenueSection from "./components/Revenue/RevenueSection";
 import ProtectedRoute from "./components/Auth/ProtectedRoute";
 import { isAuthenticated, getCurrentUser } from "./services/authService";
 import api from "./services/api";
+import { getEffectiveBranchId } from "./services/branchContext";
 
 // ===============================
-// Types (match backend + POS needs)
+// Types (match backend style)
 // ===============================
 interface ProductImage {
   url: string;
@@ -22,8 +23,8 @@ interface ProductImage {
   order?: number;
 }
 
-interface Product {
-  _id: string; // ✅ dùng _id thật cho cart
+export interface Product {
+  _id: string;
   sku?: string;
   name: string;
   categoryId?: string | null;
@@ -39,12 +40,12 @@ interface Product {
   isActive?: boolean;
 }
 
-interface OrderItem extends Product {
+export interface OrderItem extends Product {
   quantity: number;
 }
 
-interface Order {
-  id: number; // local temp id for order tab
+export interface Order {
+  id: number; // local temp id for tabs
   orderNumber: string;
   customer: string;
   items: OrderItem[];
@@ -62,10 +63,11 @@ interface CompletedOrder {
 }
 
 interface User {
-  id?: number;
+  id?: string;
   username?: string;
   name?: string;
   role?: string;
+  branchId?: string | null;
 }
 
 // ===============================
@@ -75,16 +77,18 @@ const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // ✅ products from API
+  // ✅ products from API (already includes stock)
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState<boolean>(false);
-    const [toast, setToast] = React.useState<Record<string, string>>({});
 
+  // ===============================
+  // POS orders local logic
+  // ===============================
   const [activeOrders, setActiveOrders] = useState<Order[]>([
     {
       id: 1,
       orderNumber: "TMP001",
-      customer: "Khách hàng 1",
+      customer: "Khách lẻ",
       items: [],
       createdAt: new Date(),
       status: "active",
@@ -99,47 +103,35 @@ const App: React.FC = () => {
     { id: "DH003", date: "2024-01-06", customer: "Lê Thanh Mai", total: 955000, status: "completed", items: 4 },
   ]);
 
+  // ===============================
+  // Auth bootstrap
+  // ===============================
   useEffect(() => {
     if (isAuthenticated()) {
       setIsLoggedIn(true);
       setCurrentUser(getCurrentUser());
     }
   }, []);
-   const showToast = (pid: string, text: string) => {
-    setToast((m) => ({ ...m, [pid]: text }));
-    window.setTimeout(() => {
-      setToast((m) => {
-        const n = { ...m };
-        delete n[pid];
-        return n;
-      });
-    }, 900);
-  };
+
   const handleLoginSuccess = (data: any): void => {
     setIsLoggedIn(true);
-    setCurrentUser(data.user || getCurrentUser());
+    setCurrentUser(data?.user || getCurrentUser());
   };
-  // ✅ optimistic stock reduce after sold
-const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number }>) => {
-  setProducts((prev) =>
-    (prev || []).map((p) => {
-      const hit = soldItems.find((x) => String(x.productId) === String(p._id));
-      if (!hit) return p;
-      const nextStock = Math.max(0, Number(p.stock || 0) - Number(hit.qty || 0));
-      return { ...p, stock: nextStock };
-    })
-  );
-};
+
   // ===============================
-  // Fetch products API
+  // Fetch products (by effective branch)
   // ===============================
   const fetchProducts = useCallback(async () => {
     setLoadingProducts(true);
     try {
-      const res = await api.get("/products"); // baseURL = http://localhost:3000/api
-      const items = res.data?.items || [];
-      items.sort((a: any, b: any) => b.stock - a.stock);
+      const user = getCurrentUser();
+      const branchId = getEffectiveBranchId(user); // null = ALL, string = branchId
 
+      const res = await api.get("/products", {
+        params: branchId ? { branchId } : {},
+      });
+
+      const items = res.data?.items || [];
       const mapped: Product[] = items.map((p: any) => ({
         _id: String(p._id),
         sku: p.sku || "",
@@ -147,10 +139,10 @@ const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number 
         categoryId: p.categoryId ? String(p.categoryId) : null,
         categoryName: p.categoryName || "",
         price: Number(p.price || 0),
-        cost: p.cost !== undefined ? Number(p.cost || 0) : undefined,
+        cost: Number(p.cost || 0),
         brand: p.brand || "",
         barcode: p.barcode || "",
-        stock: p.stock || 0, // ✅ tạm thời
+        stock: Number(p.stock || 0), // ✅ từ API
         thumbnail: p.thumbnail || "",
         images: Array.isArray(p.images) ? p.images : [],
         isActive: p.isActive !== false,
@@ -171,14 +163,31 @@ const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number 
     fetchProducts();
   }, [isLoggedIn, fetchProducts]);
 
+  // ✅ refetch when branch changes (Layout will dispatch this event)
+  useEffect(() => {
+    const onBranchChanged = () => {
+      // clear cart to avoid mixing branches (optional but recommended)
+      setActiveOrders((prev) =>
+        prev.map((o) => (o.id === currentOrderId ? { ...o, items: [] } : o))
+      );
+      fetchProducts();
+    };
+    window.addEventListener("branch_changed", onBranchChanged);
+    return () => window.removeEventListener("branch_changed", onBranchChanged);
+  }, [fetchProducts, currentOrderId]);
+
   // ===============================
-  // POS logic
+  // POS logic (stock-safe)
   // ===============================
+  const getCurrentOrder = (): Order | undefined => {
+    return activeOrders.find((order) => order.id === currentOrderId);
+  };
+
   const createNewOrder = (): void => {
     const newOrder: Order = {
       id: Date.now(),
       orderNumber: `TMP${String(nextOrderNumber).padStart(3, "0")}`,
-      customer: `Khách hàng ${nextOrderNumber}`,
+      customer: `Khách lẻ`,
       items: [],
       createdAt: new Date(),
       status: "active",
@@ -188,105 +197,89 @@ const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number 
     setNextOrderNumber((n) => n + 1);
   };
 
-  const getCurrentOrder = (): Order | undefined => {
-    return activeOrders.find((order) => order.id === currentOrderId);
+  const getCartQty = (order: Order | undefined, productId: string): number => {
+    if (!order) return 0;
+    const it = order.items.find((x) => x._id === productId);
+    return it ? Number(it.quantity || 0) : 0;
   };
 
-  // ✅ add by _id
+  // ✅ addToCart: do NOT exceed stock
   const addToCart = (product: Product): void => {
-    const currentOrder = getCurrentOrder();
-    if (!currentOrder) return;
+    const order = getCurrentOrder();
+    if (!order) return;
+
+    const stock = Number(product.stock || 0);
+    if (stock <= 0) return; // no stock -> ignore
+
+    const currentQty = getCartQty(order, product._id);
+    if (currentQty >= stock) return; // reached stock -> ignore
 
     setActiveOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== currentOrderId) return order;
+      prev.map((o) => {
+        if (o.id !== currentOrderId) return o;
 
-        const existingItem = order.items.find((item) => item._id === product._id);
-
-        if (existingItem) {
+        const existing = o.items.find((it) => it._id === product._id);
+        if (existing) {
           return {
-            ...order,
-            items: order.items.map((item) =>
-              item._id === product._id ? { ...item, quantity: item.quantity + 1 } : item
+            ...o,
+            items: o.items.map((it) =>
+              it._id === product._id
+                ? { ...it, quantity: Math.min(stock, Number(it.quantity || 0) + 1) }
+                : it
             ),
           };
         }
 
-        return { ...order, items: [...order.items, { ...product, quantity: 1 }] };
+        return { ...o, items: [...o.items, { ...product, quantity: 1 }] };
       })
     );
   };
 
-  // ✅ update by _id:string
   const updateQuantity = (productId: string, delta: number): void => {
+    const order = getCurrentOrder();
+    if (!order) return;
+
+    const p = products.find((x) => x._id === productId) || order.items.find((x) => x._id === productId);
+    const stock = Number(p?.stock || 0);
+
     setActiveOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== currentOrderId) return order;
+      prev.map((o) => {
+        if (o.id !== currentOrderId) return o;
 
         return {
-          ...order,
-          items: order.items
-            .map((item) => {
-              if (item._id === productId) {
-                const newQuantity = item.quantity + delta;
-                return newQuantity > 0 ? { ...item, quantity: newQuantity } : item;
-              }
-              return item;
+          ...o,
+          items: o.items
+            .map((it) => {
+              if (it._id !== productId) return it;
+
+              const next = Number(it.quantity || 0) + delta;
+              if (next <= 0) return { ...it, quantity: 0 };
+              if (stock > 0) return { ...it, quantity: Math.min(stock, next) };
+              return { ...it, quantity: next };
             })
-            .filter((item) => item.quantity > 0),
+            .filter((it) => Number(it.quantity || 0) > 0),
         };
       })
     );
   };
 
-  // ✅ remove by _id:string
   const removeFromCart = (productId: string): void => {
     setActiveOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== currentOrderId) return order;
-        return { ...order, items: order.items.filter((item) => item._id !== productId) };
+      prev.map((o) => {
+        if (o.id !== currentOrderId) return o;
+        return { ...o, items: o.items.filter((it) => it._id !== productId) };
       })
     );
+  };
+
+  const updateCustomerName = (orderId: number, name: string): void => {
+    setActiveOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, customer: name } : o)));
   };
 
   const getTotal = (orderId: number): number => {
     const order = activeOrders.find((o) => o.id === orderId);
     if (!order) return 0;
-    return order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  };
-
-  const updateCustomerName = (orderId: number, name: string): void => {
-    setActiveOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, customer: name } : order)));
-  };
-
-  const completeOrder = (): void => {
-    const currentOrder = getCurrentOrder();
-    if (!currentOrder || currentOrder.items.length === 0) {
-      alert("Đơn hàng trống!");
-      return;
-    }
-
-    const completedOrder: CompletedOrder = {
-      id: currentOrder.orderNumber,
-      date: new Date().toISOString().split("T")[0],
-      customer: currentOrder.customer,
-      total: getTotal(currentOrder.id),
-      status: "completed",
-      items: currentOrder.items.length,
-    };
-
-    setCompletedOrders((prev) => [completedOrder, ...prev]);
-    setActiveOrders((prev) => prev.filter((order) => order.id !== currentOrderId));
-
-    // chọn order tiếp theo
-    const remain = activeOrders.filter((o) => o.id !== currentOrderId);
-    if (remain.length > 0) {
-      setCurrentOrderId(remain[0].id);
-    } else {
-      createNewOrder();
-    }
-
-    // alert(`✓ Đơn hàng ${currentOrder.orderNumber} đã thanh toán!`);
+    return order.items.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0), 0);
   };
 
   const deleteOrder = (orderId: number): void => {
@@ -295,12 +288,18 @@ const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number 
       return;
     }
 
-    setActiveOrders((prev) => prev.filter((order) => order.id !== orderId));
+    setActiveOrders((prev) => prev.filter((o) => o.id !== orderId));
 
     if (currentOrderId === orderId) {
-      const nextOrder = activeOrders.find((o) => o.id !== orderId);
-      if (nextOrder) setCurrentOrderId(nextOrder.id);
+      const next = activeOrders.find((o) => o.id !== orderId);
+      if (next) setCurrentOrderId(next.id);
     }
+  };
+
+  // POS checkout handled inside POSSection now (order create/confirm flow)
+  const completeOrder = (): void => {
+    // kept for compatibility, POSSection will call its own flow or call this if you want
+    alert("POSSection sẽ xử lý quy trình tạo/confirm order theo API /orders.");
   };
 
   return (
@@ -315,7 +314,7 @@ const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number 
           path="/"
           element={
             <ProtectedRoute isAuthenticated={isLoggedIn}>
-              <Layout currentUser={currentUser} />
+              <Layout currentUser={currentUser} onBranchChanged={fetchProducts} />
             </ProtectedRoute>
           }
         >
@@ -338,10 +337,6 @@ const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number 
                 getTotal={getTotal}
                 completeOrder={completeOrder}
                 getCurrentOrder={getCurrentOrder}
-
-                // ✅ NEW
-                refreshProducts={fetchProducts}
-                onSoldAdjustStock={adjustStockAfterSold}
               />
             }
           />
@@ -353,7 +348,8 @@ const adjustStockAfterSold = (soldItems: Array<{ productId: string; qty: number 
 
           <Route path="products" element={<ProductInputSection />} />
 
-          <Route path="inventory" element={<InventorySection products={products as any} />} />
+          {/* ✅ Inventory receives products with stock already */}
+          <Route path="inventory" element={<InventorySection products={products} />} />
 
           <Route path="warehouse" element={<WarehouseSection />} />
 
