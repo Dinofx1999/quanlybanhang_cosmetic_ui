@@ -21,7 +21,7 @@ import { getEffectiveBranchId, getActiveBranchRaw } from "../../services/branchC
 // CONFIG (9009 endpoints for listing/detail)
 // ===============================
 const api9009 = axios.create({
-  baseURL: "http://localhost:9009/api",
+  baseURL: process.env.REACT_APP_API_URL || "http://localhost:9009/api",
 });
 
 // Nếu API 9009 cần Bearer token, mở đoạn này:
