@@ -148,7 +148,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
               <p className="text-xs font-semibold text-gray-700 mb-1">🔑 Tài khoản demo:</p>
               <div className="flex gap-4 text-xs text-gray-600">
-                <span>User: <code className="font-mono font-semibold">phivu</code></span>
+                <span>User: <code className="font-mono font-semibold">baoan</code></span>
                 <span>Pass: <code className="font-mono font-semibold">123123</code></span>
               </div>
             </div>
