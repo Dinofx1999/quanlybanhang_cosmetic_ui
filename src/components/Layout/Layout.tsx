@@ -4,10 +4,7 @@ import Sidebar from "../Sidebar/Sidebar";
 import { logout } from "../../services/authService";
 import { LogOut, Store, ChevronDown, Check } from "lucide-react";
 import api from "../../services/api";
-import {
-  getActiveBranchId,
-  setActiveBranchId as persistActiveBranchId, // ✅ alias để không trùng tên
-} from "../../services/branchContext";
+import { getActiveBranchId, setActiveBranchId as persistActiveBranchId } from "../../services/branchContext";
 
 interface User {
   id?: string;
@@ -20,6 +17,9 @@ interface User {
 interface LayoutProps {
   currentUser: User | null;
   onBranchChanged?: () => void;
+
+  // ✅ NEW: báo cho App reset state đăng nhập
+  onLogout?: () => void;
 }
 
 export interface Branch {
@@ -39,7 +39,7 @@ export type LayoutOutletContext = {
   setBranch: (id: string) => void;
 };
 
-const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
+const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged, onLogout }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -55,12 +55,8 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     return getActiveBranchId(currentUser);
   });
 
-  // ✅ Mobile dropdown
   const [branchOpen, setBranchOpen] = React.useState(false);
 
-  // ===============================
-  // Page title
-  // ===============================
   const getPageTitle = (): string => {
     const path = location.pathname;
     if (path.includes("/pos")) return "Bán Hàng";
@@ -72,19 +68,24 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     return "Dashboard";
   };
 
-  // ===============================
-  // Logout
-  // ===============================
-  const handleLogout = (): void => {
-    if (window.confirm("Bạn có chắc muốn đăng xuất?")) {
-      logout();
-      navigate("/login");
+  // ✅ Logout FIX: reset App state via callback, rồi điều hướng login
+  const handleLogout = async (): Promise<void> => {
+    if (!window.confirm("Bạn có chắc muốn đăng xuất?")) return;
+
+    try {
+      logout(); // clear token/localStorage (hàm của bạn)
+    } finally {
+      // ✅ quan trọng: báo App set isLoggedIn=false, currentUser=null
+      onLogout?.();
+
+      // ✅ thay vì push history, dùng replace để tránh back quay lại
+      navigate("/login", { replace: true });
+
+      // đóng dropdown nếu đang mở
+      setBranchOpen(false);
     }
   };
 
-  // ===============================
-  // Fetch branches
-  // ===============================
   const fetchBranches = React.useCallback(async () => {
     setLoadingBranches(true);
     try {
@@ -104,47 +105,29 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     fetchBranches();
   }, [currentUser, fetchBranches]);
 
-  // ===============================
-  // Sync activeBranchId when user changes
-  // ===============================
   React.useEffect(() => {
     if (!currentUser) return;
     const next = getActiveBranchId(currentUser);
     setActiveBranchState(next);
   }, [currentUser]);
 
-  // ===============================
-  // Set branch (single source of truth)
-  // ===============================
   const handleSetBranch = React.useCallback(
     (id: string) => {
       if (!currentUser) return;
-
-      // STAFF cannot change
       if (isStaff) return;
-
-      // POS cannot choose "all"
       if (isPosRoute && id === "all") return;
 
       setActiveBranchState(id);
-
-      // ✅ persist to localStorage via branchContext
       persistActiveBranchId(id);
 
-      // notify App refetch if needed
       window.dispatchEvent(new Event("branch_changed"));
       onBranchChanged?.();
 
-      // close dropdown
       setBranchOpen(false);
     },
     [currentUser, isStaff, isPosRoute, onBranchChanged]
   );
 
-  // ===============================
-  // POS rule: must select a specific branch (not "all")
-  // - if on /pos and activeBranchId is "all", auto pick first branch
-  // ===============================
   React.useEffect(() => {
     if (!currentUser) return;
     if (!isPosRoute) return;
@@ -156,15 +139,11 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     }
   }, [currentUser, isPosRoute, isStaff, activeBranchId, branches, handleSetBranch]);
 
-  // ===============================
-  // UI label
-  // ===============================
   const activeBranchLabel = React.useMemo(() => {
     if (isStaff) {
       const b = branches.find((x) => x._id === String(currentUser?.branchId || ""));
       return b?.name || "Chi nhánh (STAFF)";
     }
-
     if (activeBranchId === "all") return "Tất cả chi nhánh";
     const b = branches.find((x) => x._id === activeBranchId);
     return b?.name || "Chọn chi nhánh";
@@ -178,12 +157,10 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     setBranch: handleSetBranch,
   };
 
-  // ✅ close dropdown when route changes
   React.useEffect(() => {
     setBranchOpen(false);
   }, [location.pathname]);
 
-  // ✅ close dropdown when click outside / ESC
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setBranchOpen(false);
@@ -202,7 +179,7 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
           <div className="flex items-center gap-3 min-w-0 ml-12 lg:ml-0">
             <h2 className="text-lg font-semibold text-gray-800 truncate">{getPageTitle()}</h2>
 
-            {/* ✅ Branch selector: ALWAYS VISIBLE (mobile included) */}
+            {/* Branch selector */}
             <div className="flex items-center gap-2 min-w-0">
               <div className="relative">
                 <button
@@ -216,27 +193,28 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
                       ? "bg-gray-100 border-gray-200 cursor-not-allowed"
                       : "bg-gray-100 border-gray-200 hover:bg-gray-200"
                   }`}
-                  title={isStaff ? "STAFF không được đổi chi nhánh" : isPosRoute ? "POS bắt buộc chọn 1 chi nhánh" : "Chọn chi nhánh"}
+                  title={
+                    isStaff
+                      ? "STAFF không được đổi chi nhánh"
+                      : isPosRoute
+                      ? "POS bắt buộc chọn 1 chi nhánh"
+                      : "Chọn chi nhánh"
+                  }
                 >
                   <Store className="w-4 h-4 text-gray-500" />
                   <span className="text-sm font-medium text-gray-700 max-w-[140px] sm:max-w-[220px] truncate">
                     {loadingBranches ? "Đang tải..." : activeBranchLabel}
                   </span>
-                  {!isStaff && <ChevronDown className={`w-4 h-4 text-gray-500 transition ${branchOpen ? "rotate-180" : ""}`} />}
+                  {!isStaff && (
+                    <ChevronDown className={`w-4 h-4 text-gray-500 transition ${branchOpen ? "rotate-180" : ""}`} />
+                  )}
                 </button>
 
-                {/* ✅ Dropdown panel */}
                 {!isStaff && branchOpen && (
                   <>
-                    {/* overlay click outside */}
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setBranchOpen(false)}
-                      aria-hidden="true"
-                    />
+                    <div className="fixed inset-0 z-40" onClick={() => setBranchOpen(false)} aria-hidden="true" />
 
                     <div className="absolute z-50 mt-2 w-64 max-w-[75vw] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                      {/* only allow "all" when NOT in POS */}
                       {!isPosRoute && (
                         <button
                           type="button"

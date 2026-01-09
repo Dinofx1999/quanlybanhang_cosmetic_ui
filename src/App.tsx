@@ -447,7 +447,13 @@ const AppInner: React.FC = () => {
         path="/"
         element={
           <ProtectedRoute isAuthenticated={isLoggedIn}>
-            <Layout currentUser={currentUser} />
+            <Layout
+  currentUser={currentUser}
+  onLogout={() => {
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+  }}
+/>
           </ProtectedRoute>
         }
       >
