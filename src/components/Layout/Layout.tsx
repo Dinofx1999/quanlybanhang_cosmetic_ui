@@ -1,10 +1,14 @@
 import React from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "../Sidebar/Sidebar";
-import { logout, getCurrentUser } from "../../services/authService";
-import { LogOut, Store } from "lucide-react";
+import { logout } from "../../services/authService";
+import { LogOut, Store, ChevronDown } from "lucide-react";
 import api from "../../services/api";
-import { getActiveBranchRaw, setActiveBranchId } from "../../services/branchContext";
+import {
+  BRANCH_KEY,
+  getActiveBranchId,
+  setActiveBranchId as persistActiveBranchId, // ✅ alias để không trùng tên
+} from "../../services/branchContext";
 
 interface User {
   id?: string;
@@ -16,32 +20,60 @@ interface User {
 
 interface LayoutProps {
   currentUser: User | null;
-  onBranchChanged?: () => void; // optional hook to refetch
+  onBranchChanged?: () => void;
 }
+
+export interface Branch {
+  _id: string;
+  code?: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  isActive?: boolean;
+}
+
+export type LayoutOutletContext = {
+  branches: Branch[];
+  activeBranchId: string; // "all" | "<id>"
+  isStaff: boolean;
+  isPosRoute: boolean;
+  setBranch: (id: string) => void;
+};
 
 const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const user = currentUser || getCurrentUser();
-  const role = String(user?.role || "").toUpperCase();
+  const role = String(currentUser?.role || "").toUpperCase();
+  const isStaff = role === "STAFF";
+  const isPosRoute = location.pathname.includes("/pos");
 
-  const [branches, setBranches] = React.useState<any[]>([]);
-  const [branchRaw, setBranchRaw] = React.useState<string>(() => getActiveBranchRaw(user));
+  const [branches, setBranches] = React.useState<Branch[]>([]);
   const [loadingBranches, setLoadingBranches] = React.useState(false);
 
+  const [activeBranchId, setActiveBranchState] = React.useState<string>(() => {
+    if (!currentUser) return "all";
+    return getActiveBranchId(currentUser);
+  });
+
+  // ===============================
+  // Page title
+  // ===============================
   const getPageTitle = (): string => {
     const path = location.pathname;
     if (path.includes("/pos")) return "Bán Hàng";
     if (path.includes("/orders")) return "Đơn Hàng";
     if (path.includes("/products")) return "Sản Phẩm";
     if (path.includes("/inventory")) return "Kiểm Kho";
-    if (path.includes("/warehouse")) return "Quản Lý Kho";
+    // if (path.includes("/warehouse")) return "Quản Lý Kho";
     if (path.includes("/staff")) return "Nhân Viên";
     if (path.includes("/revenue")) return "Doanh Thu";
     return "Dashboard";
   };
 
+  // ===============================
+  // Logout
+  // ===============================
   const handleLogout = (): void => {
     if (window.confirm("Bạn có chắc muốn đăng xuất?")) {
       logout();
@@ -49,41 +81,100 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     }
   };
 
-  // load branches for admin/manager
-  React.useEffect(() => {
-    const canPickBranch = role === "ADMIN" || role === "MANAGER";
-    if (!canPickBranch) return;
-
+  // ===============================
+  // Fetch branches
+  // ===============================
+  const fetchBranches = React.useCallback(async () => {
     setLoadingBranches(true);
-    api
-      .get("/branches")
-      .then((res) => setBranches(res.data?.items || []))
-      .catch(() => setBranches([]))
-      .finally(() => setLoadingBranches(false));
-  }, [role]);
+    try {
+      const res = await api.get("/branches");
+      const items: Branch[] = res.data?.items || [];
+      setBranches(items.filter((b) => b?.isActive !== false));
+    } catch (err: any) {
+      console.error("Fetch branches error:", err?.response?.data || err?.message);
+      setBranches([]);
+    } finally {
+      setLoadingBranches(false);
+    }
+  }, []);
 
-  // keep branchRaw in sync when user changes (login/logout)
   React.useEffect(() => {
-    setBranchRaw(getActiveBranchRaw(user));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.role, user?.branchId]);
+    if (!currentUser) return;
+    fetchBranches();
+  }, [currentUser, fetchBranches]);
 
-  const canPickBranch = role === "ADMIN" || role === "MANAGER";
+  // ===============================
+  // Sync activeBranchId when user changes
+  // ===============================
+  React.useEffect(() => {
+    if (!currentUser) return;
+    const next = getActiveBranchId(currentUser);
+    setActiveBranchState(next);
+  }, [currentUser]);
 
-  const staffBranchName = React.useMemo(() => {
-    if (role !== "STAFF") return "";
-    const id = user?.branchId ? String(user.branchId) : "";
-    const found = branches.find((b) => String(b._id) === id);
-    return found?.name || id || "";
-  }, [role, user?.branchId, branches]);
+  // ===============================
+  // Set branch (single source of truth)
+  // - updates localStorage (ADMIN/MANAGER)
+  // - updates state
+  // - dispatch branch_changed event for App refetch (optional)
+  // ===============================
+  const handleSetBranch = React.useCallback(
+    (id: string) => {
+      if (!currentUser) return;
 
-  const onChangeBranch = (val: string) => {
-    setBranchRaw(val);
-    setActiveBranchId(val);
+      // STAFF cannot change
+      if (isStaff) return;
 
-    // notify whole app
-    window.dispatchEvent(new Event("branch_changed"));
-    onBranchChanged?.();
+      // POS cannot choose "all"
+      if (isPosRoute && id === "all") return;
+
+      setActiveBranchState(id);
+
+      // ✅ persist to localStorage via branchContext
+      persistActiveBranchId(id);
+
+      // notify App refetch if needed
+      window.dispatchEvent(new Event("branch_changed"));
+      onBranchChanged?.();
+    },
+    [currentUser, isStaff, isPosRoute, onBranchChanged]
+  );
+
+  // ===============================
+  // POS rule: must select a specific branch (not "all")
+  // - if on /pos and activeBranchId is "all", auto pick first branch
+  // ===============================
+  React.useEffect(() => {
+    if (!currentUser) return;
+    if (!isPosRoute) return;
+    if (isStaff) return;
+
+    if (activeBranchId === "all") {
+      const first = branches?.[0]?._id;
+      if (first) handleSetBranch(first);
+    }
+  }, [currentUser, isPosRoute, isStaff, activeBranchId, branches, handleSetBranch]);
+
+  // ===============================
+  // UI label
+  // ===============================
+  const activeBranchLabel = React.useMemo(() => {
+    if (isStaff) {
+      const b = branches.find((x) => x._id === String(currentUser?.branchId || ""));
+      return b?.name || "Chi nhánh (STAFF)";
+    }
+
+    if (activeBranchId === "all") return "Tất cả chi nhánh";
+    const b = branches.find((x) => x._id === activeBranchId);
+    return b?.name || "Chọn chi nhánh";
+  }, [activeBranchId, branches, isStaff, currentUser?.branchId]);
+
+  const outletCtx: LayoutOutletContext = {
+    branches,
+    activeBranchId,
+    isStaff,
+    isPosRoute,
+    setBranch: handleSetBranch,
   };
 
   return (
@@ -93,54 +184,58 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
         <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6">
-          <div className="flex items-center gap-3 min-w-0 ml-12 lg:ml-0">
+          <div className="flex items-center gap-4 min-w-0 ml-12 lg:ml-0">
             <h2 className="text-lg font-semibold text-gray-800 truncate">{getPageTitle()}</h2>
 
-            {/* ✅ Branch switch */}
-            {canPickBranch && (
-              <div className="hidden md:flex items-center gap-2 ml-2">
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
-                  <Store className="w-4 h-4 text-gray-600" />
+            {/* Branch selector */}
+            <div className="hidden md:flex items-center gap-2">
+              <div className="relative">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg border border-gray-200">
+                  <Store className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700 max-w-[220px] truncate">
+                    {loadingBranches ? "Đang tải chi nhánh..." : activeBranchLabel}
+                  </span>
+                  {!isStaff && <ChevronDown className="w-4 h-4 text-gray-500" />}
+                </div>
+
+                {/* Dropdown (ADMIN/MANAGER only) */}
+                {!isStaff && (
                   <select
-                    value={branchRaw}
-                    onChange={(e) => onChangeBranch(e.target.value)}
-                    className="bg-transparent text-sm font-semibold text-gray-700 outline-none"
-                    disabled={loadingBranches}
-                    title="Chọn chi nhánh"
+                    value={activeBranchId}
+                    onChange={(e) => handleSetBranch(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    title={isPosRoute ? "POS bắt buộc chọn 1 chi nhánh" : "Chọn chi nhánh"}
                   >
-                    <option value="all">Tất cả chi nhánh</option>
+                    {/* Only allow "all" when NOT in POS */}
+                    {!isPosRoute && <option value="all">Tất cả chi nhánh</option>}
+
                     {branches.map((b) => (
                       <option key={b._id} value={b._id}>
-                        {b.code} - {b.name}
+                        {b.name}
                       </option>
                     ))}
                   </select>
-                </div>
+                )}
               </div>
-            )}
 
-            {/* STAFF: show branch */}
-            {!canPickBranch && role === "STAFF" && (
-              <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
-                <Store className="w-4 h-4 text-gray-600" />
-                <span className="text-sm font-semibold text-gray-700">
-                  {staffBranchName ? staffBranchName : String(user?.branchId || "")}
-                </span>
-              </div>
-            )}
+              {isPosRoute && !isStaff && (
+                <span className="text-xs text-gray-500">POS: bắt buộc chọn 1 chi nhánh</span>
+              )}
+            </div>
           </div>
 
+          {/* Right */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg">
               <div className="w-7 h-7 bg-pink-500 rounded-lg flex items-center justify-center text-white text-xs font-bold">
-                {(user?.name || user?.username || "A")[0].toUpperCase()}
+                {(currentUser?.name || currentUser?.username || "A")[0].toUpperCase()}
               </div>
-              <div className="flex flex-col leading-tight">
-                <span className="text-sm font-medium text-gray-700 max-w-[120px] truncate">
-                  {user?.name || user?.username || "Admin"}
-                </span>
-                <span className="text-[11px] text-gray-500">{role || "—"}</span>
-              </div>
+              <span className="text-sm font-medium text-gray-700 max-w-[120px] truncate">
+                {currentUser?.name || currentUser?.username || "Admin"}
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-600">
+                {role || "USER"}
+              </span>
             </div>
 
             <button
@@ -153,9 +248,9 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
           </div>
         </div>
 
-        {/* Content */}
+        {/* Content Area */}
         <div className="flex-1 overflow-auto p-4 lg:p-6">
-          <Outlet />
+          <Outlet context={outletCtx} />
         </div>
       </div>
     </div>

@@ -29,11 +29,27 @@ export function setActiveBranchId(id: string) {
   localStorage.setItem(BRANCH_KEY, id); // id = "all" or real branch _id
 }
 
-export function getActiveBranchId(user?: any): string {
-  // Return saved branchId if present; for STAFF fall back to user's branchId; otherwise default to "all"
+export function getActiveBranchId(user: any): string {
+  const role = String(user?.role || "").toUpperCase();
+  const userBranch = user?.branchId ? String(user.branchId) : "";
+
+  if (role === "STAFF") return userBranch; // STAFF khóa theo branchId
   const saved = localStorage.getItem(BRANCH_KEY);
-  if (user?.role === "STAFF") {
-    return saved || user.branchId || "all";
-  }
-  return saved || "all";
+  return saved && saved.length ? saved : "all"; // ADMIN/MANAGER cho all
+}
+
+/**
+ * POS bắt buộc 1 cửa hàng:
+ * - STAFF: branchId user
+ * - ADMIN/MANAGER: lấy từ localStorage nếu có, nếu không => "" (bắt chọn)
+ */
+export function getPosBranchId(user: any): string {
+  const role = String(user?.role || "").toUpperCase();
+  const userBranch = user?.branchId ? String(user.branchId) : "";
+
+  if (role === "STAFF") return userBranch;
+
+  const saved = localStorage.getItem(BRANCH_KEY);
+  if (saved && saved !== "all") return saved; // dùng lại key nhưng không cho all
+  return "";
 }
