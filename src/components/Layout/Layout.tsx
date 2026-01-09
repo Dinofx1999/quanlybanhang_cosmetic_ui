@@ -70,7 +70,7 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged, onLogout 
 
   // ✅ Logout FIX: reset App state via callback, rồi điều hướng login
   const handleLogout = async (): Promise<void> => {
-    if (!window.confirm("Bạn có chắc muốn đăng xuất?")) return;
+    // if (!window.confirm("Bạn có chắc muốn đăng xuất?")) return;
 
     try {
       logout(); // clear token/localStorage (hàm của bạn)
