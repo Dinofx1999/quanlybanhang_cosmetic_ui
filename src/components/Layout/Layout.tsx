@@ -2,10 +2,9 @@ import React from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "../Sidebar/Sidebar";
 import { logout } from "../../services/authService";
-import { LogOut, Store, ChevronDown } from "lucide-react";
+import { LogOut, Store, ChevronDown, Check } from "lucide-react";
 import api from "../../services/api";
 import {
-  BRANCH_KEY,
   getActiveBranchId,
   setActiveBranchId as persistActiveBranchId, // ✅ alias để không trùng tên
 } from "../../services/branchContext";
@@ -56,6 +55,9 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     return getActiveBranchId(currentUser);
   });
 
+  // ✅ Mobile dropdown
+  const [branchOpen, setBranchOpen] = React.useState(false);
+
   // ===============================
   // Page title
   // ===============================
@@ -65,7 +67,6 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     if (path.includes("/orders")) return "Đơn Hàng";
     if (path.includes("/products")) return "Sản Phẩm";
     if (path.includes("/inventory")) return "Kiểm Kho";
-    // if (path.includes("/warehouse")) return "Quản Lý Kho";
     if (path.includes("/staff")) return "Nhân Viên";
     if (path.includes("/revenue")) return "Doanh Thu";
     return "Dashboard";
@@ -114,9 +115,6 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
 
   // ===============================
   // Set branch (single source of truth)
-  // - updates localStorage (ADMIN/MANAGER)
-  // - updates state
-  // - dispatch branch_changed event for App refetch (optional)
   // ===============================
   const handleSetBranch = React.useCallback(
     (id: string) => {
@@ -136,6 +134,9 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
       // notify App refetch if needed
       window.dispatchEvent(new Event("branch_changed"));
       onBranchChanged?.();
+
+      // close dropdown
+      setBranchOpen(false);
     },
     [currentUser, isStaff, isPosRoute, onBranchChanged]
   );
@@ -177,49 +178,110 @@ const Layout: React.FC<LayoutProps> = ({ currentUser, onBranchChanged }) => {
     setBranch: handleSetBranch,
   };
 
+  // ✅ close dropdown when route changes
+  React.useEffect(() => {
+    setBranchOpen(false);
+  }, [location.pathname]);
+
+  // ✅ close dropdown when click outside / ESC
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBranchOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6">
-          <div className="flex items-center gap-4 min-w-0 ml-12 lg:ml-0">
+        <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-3 sm:px-4 lg:px-6">
+          <div className="flex items-center gap-3 min-w-0 ml-12 lg:ml-0">
             <h2 className="text-lg font-semibold text-gray-800 truncate">{getPageTitle()}</h2>
 
-            {/* Branch selector */}
-            <div className="hidden md:flex items-center gap-2">
+            {/* ✅ Branch selector: ALWAYS VISIBLE (mobile included) */}
+            <div className="flex items-center gap-2 min-w-0">
               <div className="relative">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg border border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isStaff) return;
+                    setBranchOpen((v) => !v);
+                  }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition ${
+                    isStaff
+                      ? "bg-gray-100 border-gray-200 cursor-not-allowed"
+                      : "bg-gray-100 border-gray-200 hover:bg-gray-200"
+                  }`}
+                  title={isStaff ? "STAFF không được đổi chi nhánh" : isPosRoute ? "POS bắt buộc chọn 1 chi nhánh" : "Chọn chi nhánh"}
+                >
                   <Store className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700 max-w-[220px] truncate">
-                    {loadingBranches ? "Đang tải chi nhánh..." : activeBranchLabel}
+                  <span className="text-sm font-medium text-gray-700 max-w-[140px] sm:max-w-[220px] truncate">
+                    {loadingBranches ? "Đang tải..." : activeBranchLabel}
                   </span>
-                  {!isStaff && <ChevronDown className="w-4 h-4 text-gray-500" />}
-                </div>
+                  {!isStaff && <ChevronDown className={`w-4 h-4 text-gray-500 transition ${branchOpen ? "rotate-180" : ""}`} />}
+                </button>
 
-                {/* Dropdown (ADMIN/MANAGER only) */}
-                {!isStaff && (
-                  <select
-                    value={activeBranchId}
-                    onChange={(e) => handleSetBranch(e.target.value)}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    title={isPosRoute ? "POS bắt buộc chọn 1 chi nhánh" : "Chọn chi nhánh"}
-                  >
-                    {/* Only allow "all" when NOT in POS */}
-                    {!isPosRoute && <option value="all">Tất cả chi nhánh</option>}
+                {/* ✅ Dropdown panel */}
+                {!isStaff && branchOpen && (
+                  <>
+                    {/* overlay click outside */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setBranchOpen(false)}
+                      aria-hidden="true"
+                    />
 
-                    {branches.map((b) => (
-                      <option key={b._id} value={b._id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
+                    <div className="absolute z-50 mt-2 w-64 max-w-[75vw] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                      {/* only allow "all" when NOT in POS */}
+                      {!isPosRoute && (
+                        <button
+                          type="button"
+                          onClick={() => handleSetBranch("all")}
+                          className={`w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-gray-50 ${
+                            activeBranchId === "all" ? "bg-gray-50" : ""
+                          }`}
+                        >
+                          <span className="truncate">Tất cả chi nhánh</span>
+                          {activeBranchId === "all" && <Check className="w-4 h-4 text-pink-600" />}
+                        </button>
+                      )}
+
+                      <div className="max-h-[320px] overflow-auto border-t border-gray-100">
+                        {branches.map((b) => (
+                          <button
+                            key={b._id}
+                            type="button"
+                            onClick={() => handleSetBranch(b._id)}
+                            className={`w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-gray-50 ${
+                              activeBranchId === b._id ? "bg-gray-50" : ""
+                            }`}
+                          >
+                            <span className="truncate">{b.name}</span>
+                            {activeBranchId === b._id && <Check className="w-4 h-4 text-pink-600" />}
+                          </button>
+                        ))}
+
+                        {branches.length === 0 && (
+                          <div className="px-3 py-3 text-sm text-gray-500">Không có chi nhánh.</div>
+                        )}
+                      </div>
+
+                      {isPosRoute && (
+                        <div className="px-3 py-2 text-[11px] text-gray-500 border-t border-gray-100">
+                          POS: bắt buộc chọn 1 chi nhánh
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
 
               {isPosRoute && !isStaff && (
-                <span className="text-xs text-gray-500">POS: bắt buộc chọn 1 chi nhánh</span>
+                <span className="hidden sm:inline text-xs text-gray-500">POS: chọn 1 chi nhánh</span>
               )}
             </div>
           </div>

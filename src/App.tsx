@@ -482,9 +482,9 @@ const AppInner: React.FC = () => {
         <Route path="orders" element={<OrdersSection />} />
         <Route path="products" element={<ProductInputSection />} />
         <Route path="inventory" element={<InventorySection products={productsRaw as any} />} />
-        <Route path="warehouse" element={<WarehouseSection />} />
+        {/* <Route path="warehouse" element={<WarehouseSection />} />
         <Route path="staff" element={<StaffSection />} />
-        <Route path="revenue" element={<RevenueSection products={productsRaw as any} />} />
+        <Route path="revenue" element={<RevenueSection products={productsRaw as any} />} /> */}
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
