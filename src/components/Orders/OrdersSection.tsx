@@ -225,7 +225,7 @@ const OrdersSection: React.FC = () => {
   const [usersLoading, setUsersLoading] = useState(false);
 
   // ✅ Print base URL từ env
-  const PRINT_BASE = (process.env.REACT_APP_PRINT_BASE as string) || "http://localhost:9009";
+  const PRINT_BASE = (process.env.REACT_APP_API_URL as string) || "http://localhost:9009";
 
   // ✅ Helper in bill
   const printBill = (orderId: string) => {
