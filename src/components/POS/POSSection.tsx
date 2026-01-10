@@ -16,7 +16,7 @@ import {
   Truck,
   Gift,
 } from "lucide-react";
-
+import { printByIframe } from "../../utils/printIframe";
 // ===============================
 // Types
 // ===============================
@@ -82,7 +82,7 @@ interface POSSectionProps {
   // legacy
   completeOrder: () => void;
 
-  // NEW: App.tsx implement cái này
+  // ✅ MUST return {_id} so POS can print by _id
   completeOrderWithStatus?: (
     status: "PENDING" | "CONFIRM",
     payload: {
@@ -91,12 +91,11 @@ interface POSSectionProps {
       delivery: { method: "PICKUP" | "DELIVERY"; address?: string; note?: string };
       payment: { method: "CASH" | "BANK" | "PENDING"; amount: number };
 
-      // ✅ NEW pricing fields
-      discount: number; // giảm trừ (>=0)
-      extraFee: number; // phụ phí (>=0) ví dụ ship/gói quà
-      pricingNote?: string; // ghi chú phí
+      discount: number;
+      extraFee: number;
+      pricingNote?: string;
     }
-  ) => Promise<void> | void;
+  ) => Promise<{ _id: string } | any> | { _id: string } | any;
 
   getCurrentOrder: () => Order | undefined;
 
@@ -106,6 +105,9 @@ interface POSSectionProps {
   currentUser: any;
 }
 
+// ===============================
+// Helpers
+// ===============================
 const money = (n: any) => Number(n || 0).toLocaleString("vi-VN");
 
 const getPrimaryImage = (p: Product): string | undefined => {
@@ -125,6 +127,37 @@ const toNumberSafe = (v: any) => {
 };
 const clamp0 = (n: number) => (n < 0 ? 0 : n);
 
+// ✅ Stock UI helpers
+const stockUI = (stock: number) => {
+  const s = Number(stock || 0);
+  if (s < 0) {
+    return {
+      text: `SL: ${s} (âm)`,
+      cls: "text-red-700 font-extrabold",
+      tag: { label: "Hết hàng", cls: "bg-red-100 text-red-700 border border-red-200" },
+    };
+  }
+  if (s === 0) {
+    return {
+      text: `SL: ${s}`,
+      cls: "text-red-600 font-bold",
+      tag: { label: "Hết hàng", cls: "bg-red-100 text-red-700 border border-red-200" },
+    };
+  }
+  return { text: `SL: ${s}`, cls: "text-gray-500", tag: null as any };
+};
+
+const brandTagUI = (brand?: string) => {
+  const b = String(brand || "").trim();
+  if (!b) return null;
+  return { label: b, cls: "bg-indigo-50 text-indigo-700 border border-indigo-200" };
+};
+
+
+
+// ===============================
+// Component
+// ===============================
 const POSSection: React.FC<POSSectionProps> = ({
   products,
   activeOrders,
@@ -178,11 +211,35 @@ const POSSection: React.FC<POSSectionProps> = ({
   // pricing
   const [discount, setDiscount] = React.useState<string>("0");
   const [extraFee, setExtraFee] = React.useState<string>("0");
-  const [pricingNote, setPricingNote] = React.useState<string>(""); // ví dụ "Ship" / "Gói quà"
+  const [pricingNote, setPricingNote] = React.useState<string>("");
 
   // payment
   const [payMethod, setPayMethod] = React.useState<PaymentMethodUI>("CASH");
   const [submitting, setSubmitting] = React.useState(false);
+
+  // ✅ input số lượng lớn theo từng item
+  const [bulkQty, setBulkQty] = React.useState<Record<string, string>>({});
+
+  // ===============================
+  // Print choose modal (In / Không in)
+  // ===============================
+  const [printOpen, setPrintOpen] = React.useState(false);
+  const [choosingPrint, setChoosingPrint] = React.useState(false);
+
+  // ✅ BE mount: app.use("/print", printReceipt);
+  // => /print/receipt/:id?paper=80&autoprint=1
+  const PRINT_BASE = (process.env.REACT_APP_PRINT_BASE as string) || "http://localhost:9009";
+
+  const openPrint80mmById = (orderId: string) => {
+    const id = String(orderId || "").trim();
+    if (!id) {
+      message.warning("Không có _id của đơn để in.");
+      return;
+    }
+    const url = `${PRINT_BASE}/print/receipt/${encodeURIComponent(id)}?paper=80&autoprint=1`;
+    const w = window.open(url, "_blank", "noopener,noreferrer,width=420,height=720");
+    if (!w) message.warning("Trình duyệt đang chặn popup. Hãy cho phép popup để in bill.");
+  };
 
   // sync tên khách nhanh từ order -> form
   React.useEffect(() => {
@@ -200,6 +257,13 @@ const POSSection: React.FC<POSSectionProps> = ({
     setDiscount("0");
     setExtraFee("0");
     setPricingNote("");
+
+    // reset input bulk khi đổi tab order
+    setBulkQty({});
+
+    // đóng modal in nếu đang mở
+    setPrintOpen(false);
+    setChoosingPrint(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOrderId]);
 
@@ -216,7 +280,6 @@ const POSSection: React.FC<POSSectionProps> = ({
    * ✅ Validate theo yêu cầu:
    * - PICKUP: không bắt buộc phone (vãng lai)
    * - DELIVERY: bắt buộc phone + address
-   * - name: nếu để trống thì tự fallback "Khách lẻ"
    */
   const validateCustomer = () => {
     const phone = String(cPhone || "").trim();
@@ -227,13 +290,10 @@ const POSSection: React.FC<POSSectionProps> = ({
       if (!isValidPhone(phone)) return { ok: false, msg: "Giao hàng: SĐT không hợp lệ." };
       if (!addr) return { ok: false, msg: "Giao hàng: bắt buộc nhập địa chỉ." };
     } else {
-      // PICKUP: phone optional, nếu có thì validate
       if (phone && !isValidPhone(phone)) return { ok: false, msg: "SĐT không hợp lệ." };
     }
 
-    // pricing sanity
     if (discountNum > subtotalAmount) return { ok: false, msg: "Discount không được lớn hơn tạm tính." };
-
     return { ok: true, msg: "" };
   };
 
@@ -248,50 +308,39 @@ const POSSection: React.FC<POSSectionProps> = ({
     const address = String(cAddress || "").trim() || undefined;
     const note = String(cNote || "").trim() || "";
 
-    // khách vãng lai: pickup + không phone/email + không nhập name -> không gửi customer
     const customerObj =
       deliveryMethod === "DELIVERY" || phone || email || nameRaw ? { name, phone, email } : undefined;
 
     return {
       branchId: branchFinal,
-
       customer: customerObj,
-
       delivery: {
         method: deliveryMethod,
         address: deliveryMethod === "DELIVERY" ? address : undefined,
         note: note || (deliveryMethod === "PICKUP" ? "Bán tại quầy" : undefined),
       },
-
-      // ✅ payment amount: dùng finalTotal (đã cộng/trừ)
       payment: {
         method: payMethod,
         amount: payMethod === "PENDING" ? 0 : finalTotal,
       },
-
-      // ✅ pricing fields
       discount: discountNum,
       extraFee: extraFeeNum,
       pricingNote: String(pricingNote || "").trim() || undefined,
     };
   };
 
-  /**
-   * ✅ New behavior:
-   * - CASH/BANK -> statusFinal = CONFIRM
-   * - PENDING  -> statusFinal = PENDING
-   */
-  const onSubmitPayment = async () => {
+  // ✅ thực thi tạo/confirm đơn và trả về _id để in
+  const doSubmitPayment = async () => {
     if (!currentOrder || !posReady) {
       if (!posReady) message.warning("POS bắt buộc chọn 1 chi nhánh (không được ALL).");
-      return;
+      return { ok: false as const, orderId: "" };
     }
 
     const v = validateCustomer();
     if (!v.ok) {
       message.warning(v.msg);
       setStep("CUSTOMER");
-      return;
+      return { ok: false as const, orderId: "" };
     }
 
     const payload = buildPayload();
@@ -302,15 +351,18 @@ const POSSection: React.FC<POSSectionProps> = ({
     message.loading({ content: "Đang xử lý đơn hàng...", key });
 
     try {
+      let orderId = "";
+
       if (completeOrderWithStatus) {
-        await completeOrderWithStatus(statusFinal, payload);
+        const res: any = await completeOrderWithStatus(statusFinal, payload);
+        // ✅ ưu tiên _id trả về
+        orderId = String(res?._id || res?.order?._id || res?.data?._id || "");
       } else {
         await Promise.resolve(completeOrder());
       }
 
       message.success({ content: "Thành công!", key, duration: 2 });
 
-      // reset UI
       setStep("CART");
       setPayMethod("CASH");
       setCPhone("");
@@ -320,8 +372,9 @@ const POSSection: React.FC<POSSectionProps> = ({
       setDiscount("0");
       setExtraFee("0");
       setPricingNote("");
-      // giữ name để tiện hoặc reset tuỳ bạn:
-      // setCName("");
+      setBulkQty({});
+
+      return { ok: true as const, orderId };
     } catch (e: any) {
       console.error("completeOrder error:", e?.response?.data || e?.message);
       message.error({
@@ -329,24 +382,55 @@ const POSSection: React.FC<POSSectionProps> = ({
         key,
         duration: 3,
       });
+      return { ok: false as const, orderId: "" };
     } finally {
       setSubmitting(false);
     }
   };
 
+  // ✅ nút Hoàn tất đơn: chỉ mở modal chọn in/không in
+const onSubmitPayment = async () => {
+  if (!currentOrder || !posReady) {
+    if (!posReady) message.warning("POS bắt buộc chọn 1 chi nhánh (không được ALL).");
+    return;
+  }
+
+  const v = validateCustomer();
+  if (!v.ok) {
+    message.warning(v.msg);
+    setStep("CUSTOMER");
+    return;
+  }
+
+  // ✅ không submit ở đây, chỉ mở modal
+  setPrintOpen(true);
+};
+
   // ===============================
-  // Products filter
+  // Products filter (✅ stable sort - no jumping)
   // ===============================
   const filteredProducts = React.useMemo(() => {
     const s = searchTerm.trim().toLowerCase();
     const list = (products || []).filter((p) => p?.isActive !== false);
-    const sorted = [...list].sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0));
+
+    // ✅ không sort theo stock (vì stock thay đổi theo giỏ => nhảy loạn)
+    // sort ổn định theo name, tie-break theo _id
+    const sorted = [...list].sort((a, b) => {
+      const an = String(a.name || "").toLowerCase();
+      const bn = String(b.name || "").toLowerCase();
+      const c = an.localeCompare(bn, "vi");
+      if (c !== 0) return c;
+      return String(a._id).localeCompare(String(b._id));
+    });
+
     if (!s) return sorted;
+
     return sorted.filter((p) => {
       const name = String(p.name || "").toLowerCase();
       const barcode = String(p.barcode || "").toLowerCase();
       const sku = String(p.sku || "").toLowerCase();
-      return name.includes(s) || barcode.includes(s) || sku.includes(s);
+      const brand = String(p.brand || "").toLowerCase();
+      return name.includes(s) || barcode.includes(s) || sku.includes(s) || brand.includes(s);
     });
   }, [products, searchTerm]);
 
@@ -355,11 +439,40 @@ const POSSection: React.FC<POSSectionProps> = ({
       message.warning("POS bắt buộc chọn 1 chi nhánh trước.");
       return;
     }
-    if (Number(p.stock || 0) <= 0) {
-      message.warning("Sản phẩm đã hết hàng.");
+    addToCart(p); // ✅ cho phép bán dù hết hàng
+  };
+
+  // ✅ helper: tồn còn lại trong giỏ (có thể âm)
+  const remainingStockForItem = (item: OrderItem) => {
+    const base = Number(item.stock || 0);
+    const q = Number(item.quantity || 0);
+    return base - q;
+  };
+
+  // ✅ bulk set qty: set về số tuyệt đối bằng cách cộng delta
+  const applyBulkQty = (productId: string) => {
+    if (!posReady) return;
+
+    const raw = String(bulkQty[productId] ?? "").trim();
+    const target = Math.max(0, Math.floor(toNumberSafe(raw)));
+
+    if (!currentOrder) return;
+
+    const it = currentOrder.items.find((x) => x._id === productId);
+    const current = Number(it?.quantity || 0);
+
+    if (!it) {
+      if (target <= 0) return;
+      const prod = products.find((p) => p._id === productId);
+      if (!prod) return;
+      addToCart(prod);
+      if (target - 1 > 0) updateQuantity(productId, target - 1);
       return;
     }
-    addToCart(p);
+
+    const delta = target - current;
+    if (delta === 0) return;
+    updateQuantity(productId, delta); // ✅ cho âm kho
   };
 
   const StepTabs = () => (
@@ -443,7 +556,7 @@ const POSSection: React.FC<POSSectionProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm sản phẩm (tên / SKU / barcode)..."
+              placeholder="Tìm sản phẩm (tên / SKU / barcode / brand)..."
               className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
             />
           </div>
@@ -459,8 +572,10 @@ const POSSection: React.FC<POSSectionProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {filteredProducts.map((p) => {
               const img = getPrimaryImage(p);
-              const out = Number(p.stock || 0) <= 0;
-              const disabled = !posReady || out;
+              const disabled = !posReady;
+
+              const st = stockUI(Number(p.stock || 0));
+              const brandTag = brandTagUI(p.brand);
 
               return (
                 <button
@@ -472,7 +587,7 @@ const POSSection: React.FC<POSSectionProps> = ({
                       ? "bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed"
                       : "bg-white border-gray-200 hover:border-pink-300 hover:shadow-sm"
                   }`}
-                  title={!posReady ? "POS bắt buộc chọn 1 chi nhánh" : out ? "Hết hàng" : p.name}
+                  title={!posReady ? "POS bắt buộc chọn 1 chi nhánh" : p.name}
                 >
                   <div className="relative w-full aspect-square bg-gray-50">
                     {img ? (
@@ -491,29 +606,35 @@ const POSSection: React.FC<POSSectionProps> = ({
                       <div className="w-full h-full flex items-center justify-center text-gray-400 text-3xl">🧴</div>
                     )}
 
-                    <div className="absolute top-2 left-2 text-[11px] px-2 py-1 rounded bg-white/90 border border-gray-200 text-gray-700 max-w-[90%] truncate">
-                      {p.categoryName || "—"}
-                    </div>
-
-                    {out && (
-                      <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
-                        <span className="px-2 py-1 rounded bg-white text-xs font-extrabold text-gray-800">
-                          HẾT HÀNG
-                        </span>
+                    <div className="absolute top-2 left-2 flex flex-col gap-1 max-w-[92%]">
+                      <div className="text-[11px] px-2 py-1 rounded bg-white/90 border border-gray-200 text-gray-700 truncate">
+                        {p.categoryName || "—"}
                       </div>
-                    )}
+
+                      {brandTag && (
+                        <div className={`text-[11px] px-2 py-1 rounded bg-white/90 truncate ${brandTag.cls}`}>
+                          {brandTag.label}
+                        </div>
+                      )}
+
+                      {st.tag && (
+                        <div className={`text-[11px] px-2 py-1 rounded bg-white/90 truncate ${st.tag.cls}`}>
+                          {st.tag.label}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="p-3">
                     <div className="text-sm font-semibold text-gray-800 line-clamp-2 min-h-[40px]">{p.name}</div>
+
                     <div className="mt-1 text-[11px] text-gray-500 truncate">
                       {p.sku ? `SKU: ${p.sku}` : p.barcode ? `BC: ${p.barcode}` : ""}
                     </div>
-                    <div className="mt-2 flex items-center justify-between">
+
+                    <div className="mt-2 flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-pink-600">{money(p.price)}đ</span>
-                      <span className={`text-xs ${out ? "text-red-600 font-bold" : "text-gray-500"}`}>
-                        SL: {Number(p.stock || 0)}
-                      </span>
+                      <span className={`text-xs ${st.cls}`}>{st.text}</span>
                     </div>
                   </div>
                 </button>
@@ -616,7 +737,6 @@ const POSSection: React.FC<POSSectionProps> = ({
           {/* CART */}
           {step === "CART" && (
             <>
-              {/* Customer Name quick */}
               <div className="p-4 border-b border-gray-200">
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -633,18 +753,20 @@ const POSSection: React.FC<POSSectionProps> = ({
                     }`}
                   />
                 </div>
-                <div className="mt-2 text-[11px] text-gray-500">
-                  Khách vãng lai có thể để trống SĐT, chỉ cần nhập khi chọn Giao hàng.
-                </div>
+                <div className="mt-2 text-[11px] text-gray-500">✅ Cho phép bán âm kho.</div>
               </div>
 
-              {/* Cart items */}
               <div className="flex-1 overflow-y-auto p-3 max-h-[55vh]">
                 {currentOrder && currentOrder.items.length > 0 ? (
                   <div className="space-y-2">
                     {currentOrder.items.map((item) => {
                       const img = getPrimaryImage(item);
-                      const reached = item.quantity >= Number(item.stock || 0);
+
+                      const remaining = remainingStockForItem(item);
+                      const remUI = stockUI(remaining);
+
+                      const itemStockUI = stockUI(Number(item.stock ?? 0));
+                      const brandTag = brandTagUI(item.brand);
 
                       return (
                         <div key={item._id} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
@@ -661,29 +783,76 @@ const POSSection: React.FC<POSSectionProps> = ({
                                   }}
                                 />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xl">
-                                  🧴
-                                </div>
+                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xl">🧴</div>
                               )}
                             </div>
 
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-sm text-gray-800 truncate">{item.name}</h4>
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="font-semibold text-sm text-gray-800 truncate">{item.name}</h4>
+
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {brandTag && (
+                                    <span className={`text-[11px] px-2 py-1 rounded ${brandTag.cls}`}>{brandTag.label}</span>
+                                  )}
+                                  {itemStockUI.tag && (
+                                    <span className={`text-[11px] px-2 py-1 rounded ${itemStockUI.tag.cls}`}>
+                                      {itemStockUI.tag.label}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
                               <div className="text-[11px] text-gray-500 truncate">
                                 {item.categoryName || ""} {item.sku ? ` • ${item.sku}` : ""}
                               </div>
+
                               <p className="text-xs text-pink-600 font-semibold mt-1">{money(item.price)}đ</p>
+
+                              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                <input
+                                  value={bulkQty[item._id] ?? ""}
+                                  onChange={(e) => setBulkQty((m) => ({ ...m, [item._id]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") applyBulkQty(item._id);
+                                  }}
+                                  placeholder="Nhập SL (vd: 50)"
+                                  inputMode="numeric"
+                                  className="w-28 px-2 py-1.5 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-pink-500"
+                                  disabled={!posReady}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => applyBulkQty(item._id)}
+                                  disabled={!posReady}
+                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold border ${
+                                    posReady
+                                      ? "bg-white hover:bg-gray-50 border-gray-300"
+                                      : "bg-gray-100 border-gray-200 cursor-not-allowed"
+                                  }`}
+                                  title="Set số lượng theo input"
+                                >
+                                  Set
+                                </button>
+
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs ${remUI.cls}`} title="Tồn còn lại = tồn hiển thị - số lượng trong giỏ">
+                                    tồn còn lại: {remaining}
+                                  </span>
+                                  {remUI.tag && (
+                                    <span className={`text-[11px] px-2 py-1 rounded ${remUI.tag.cls}`}>{remUI.tag.label}</span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </div>
 
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <button
                                 onClick={() => posReady && updateQuantity(item._id, -1)}
                                 className={`p-1 rounded ${
-                                  posReady
-                                    ? "bg-gray-200 hover:bg-gray-300"
-                                    : "bg-gray-200 opacity-60 cursor-not-allowed"
+                                  posReady ? "bg-gray-200 hover:bg-gray-300" : "bg-gray-200 opacity-60 cursor-not-allowed"
                                 }`}
                                 disabled={!posReady}
                               >
@@ -693,25 +862,27 @@ const POSSection: React.FC<POSSectionProps> = ({
                               <span className="w-6 text-center font-semibold text-sm">{item.quantity}</span>
 
                               <button
-                                onClick={() => posReady && !reached && updateQuantity(item._id, 1)}
+                                onClick={() => posReady && updateQuantity(item._id, 1)}
                                 className={`p-1 rounded ${
-                                  posReady && !reached
-                                    ? "bg-pink-500 hover:bg-pink-600"
-                                    : "bg-gray-300 cursor-not-allowed"
+                                  posReady ? "bg-pink-500 hover:bg-pink-600" : "bg-gray-300 cursor-not-allowed"
                                 }`}
-                                disabled={!posReady || reached}
+                                disabled={!posReady}
                               >
                                 <Plus className="w-3 h-3 text-white" />
                               </button>
 
-                              <span className="ml-2 text-xs text-gray-500">tồn: {Number(item.stock ?? 0)}</span>
-                              {reached && <span className="ml-2 text-[11px] font-bold text-red-600">Đạt tồn</span>}
+                              <div className="flex items-center gap-2 ml-2">
+                                <span className={`text-xs ${itemStockUI.cls}`}>tồn hiển thị: {Number(item.stock ?? 0)}</span>
+                                {itemStockUI.tag && (
+                                  <span className={`text-[11px] px-2 py-1 rounded ${itemStockUI.tag.cls}`}>
+                                    {itemStockUI.tag.label}
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-gray-800">
-                                {money(item.price * item.quantity)}đ
-                              </span>
+                              <span className="font-bold text-sm text-gray-800">{money(item.price * item.quantity)}đ</span>
                               <button
                                 onClick={() => posReady && removeFromCart(item._id)}
                                 className={`p-1 rounded ${
@@ -735,7 +906,6 @@ const POSSection: React.FC<POSSectionProps> = ({
                 )}
               </div>
 
-              {/* Footer */}
               <div className="p-4 border-t border-gray-200 bg-gray-50">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-gray-600 font-medium">Tạm tính:</span>
@@ -763,7 +933,6 @@ const POSSection: React.FC<POSSectionProps> = ({
           {/* CUSTOMER */}
           {step === "CUSTOMER" && (
             <div className="p-4 space-y-4">
-              {/* Pricing box */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Tạm tính</span>
@@ -826,7 +995,6 @@ const POSSection: React.FC<POSSectionProps> = ({
                 </div>
               </div>
 
-              {/* Customer fields */}
               <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label className="text-sm font-semibold text-gray-700">Tên khách (tuỳ chọn)</label>
@@ -868,7 +1036,6 @@ const POSSection: React.FC<POSSectionProps> = ({
                   />
                 </div>
 
-                {/* Delivery method */}
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -1017,7 +1184,14 @@ const POSSection: React.FC<POSSectionProps> = ({
                 type="button"
                 onClick={onSubmitPayment}
                 disabled={submitting || !posReady || !currentOrder || finalTotal <= 0}
-                className="w-full bg-gray-900 hover:bg-black text-white py-3 rounded-lg font-extrabold disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="
+                  w-full
+                  bg-green-600 hover:bg-green-700
+                  text-white py-3 rounded-lg font-extrabold
+                  disabled:bg-green-300 disabled:cursor-not-allowed
+                  flex items-center justify-center gap-2
+                  transition-colors
+                "
               >
                 {submitting ? (
                   "Đang xử lý..."
@@ -1045,6 +1219,113 @@ const POSSection: React.FC<POSSectionProps> = ({
           </div>
         )}
       </div>
+
+      {/* ✅ PRINT CHOICE MODAL */}
+      {printOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden">
+            <div className="p-4 border-b border-gray-200">
+              <div className="text-lg font-extrabold text-gray-900">Hoàn tất đơn</div>
+              <div className="text-sm text-gray-600 mt-1">
+                Chọn in bill cho đơn <b>{currentOrder?.orderNumber || "—"}</b>
+              </div>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <button
+                type="button"
+                disabled={choosingPrint || submitting}
+                onClick={async () => {
+                  if (choosingPrint) return;
+                  setChoosingPrint(true);
+
+                  const r = await doSubmitPayment();
+                  if (r.ok) setPrintOpen(false);
+
+                  setChoosingPrint(false);
+                }}
+                className="w-full px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 font-extrabold text-gray-800 disabled:opacity-60"
+              >
+                Không in bill
+              </button>
+
+
+<button
+  type="button"
+  disabled={choosingPrint || submitting}
+  onClick={async () => {
+    if (choosingPrint) return;
+    setChoosingPrint(true);
+
+    // ✅ 1. MỞ POPUP NGAY (trang trắng/loading) - không bị chặn vì là sync
+    const popup = window.open('about:blank', '_blank', 'width=420,height=720');
+    
+    if (!popup) {
+      message.warning("Trình duyệt đang chặn popup. Hãy cho phép popup trong cài đặt trình duyệt.");
+      setChoosingPrint(false);
+      return;
+    }
+
+    // Hiển thị loading trong popup
+    popup.document.write(`
+      <html>
+        <head><title>Đang xử lý...</title></head>
+        <body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+          <div style="text-align:center;">
+            <div style="font-size:24px;margin-bottom:10px;">⏳</div>
+            <div>Đang xử lý đơn hàng...</div>
+          </div>
+        </body>
+      </html>
+    `);
+
+    // ✅ 2. Submit đơn (async)
+    const r = await doSubmitPayment();
+    
+    if (r.ok) {
+      const orderId = String(r.orderId || "").trim();
+      
+      if (!orderId) {
+        popup.close();
+        message.warning("Không có _id của đơn để in.");
+        setChoosingPrint(false);
+        return;
+      }
+
+      // ✅ 3. REDIRECT popup sang URL in thật
+      const url = `${PRINT_BASE}/print/receipt/${encodeURIComponent(orderId)}?paper=80&autoprint=1`;
+      popup.location.href = url;
+      
+      message.success("Đã mở trang in bill");
+      setPrintOpen(false);
+    } else {
+      popup.close();
+    }
+
+    setChoosingPrint(false);
+  }}
+  className="w-full px-4 py-3 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-extrabold"
+>
+  In bill 80mm
+</button>
+
+
+
+
+              <button
+                type="button"
+                disabled={choosingPrint || submitting}
+                onClick={() => setPrintOpen(false)}
+                className="w-full px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:text-gray-900"
+              >
+                Huỷ
+              </button>
+
+              <div className="text-xs text-gray-500">Nếu bị chặn popup, hãy cho phép popup để mở trang in.</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

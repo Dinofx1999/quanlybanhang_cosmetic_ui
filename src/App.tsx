@@ -282,57 +282,66 @@ const AppInner: React.FC = () => {
     }
   };
 
-  const addToCart = (product: Product): void => {
-    const order = getCurrentOrderFn();
-    if (!order) return;
+const addToCart = (product: Product): void => {
+  const order = getCurrentOrderFn();
+  if (!order) return;
 
-    const available = Number(product.stock || 0);
-    if (available <= 0) {
-      message.warning("Sản phẩm đã hết hàng.");
-      return;
-    }
+  // ✅ Cho phép bán dù stock <= 0 (kho âm)
+  // const available = Number(product.stock || 0);
+  // if (available <= 0) {
+  //   message.warning("Sản phẩm đã hết hàng.");
+  //   return;
+  // }
 
-    setActiveOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== currentOrderId) return o;
+  setActiveOrders((prev) =>
+    prev.map((o) => {
+      if (o.id !== currentOrderId) return o;
 
-        const existing = o.items.find((it) => it._id === product._id);
-        if (existing) {
-          return {
-            ...o,
-            items: o.items.map((it) =>
-              it._id === product._id ? { ...it, quantity: Number(it.quantity || 0) + 1 } : it
-            ),
-          };
-        }
-        return { ...o, items: [...o.items, { ...product, quantity: 1 }] };
-      })
-    );
-  };
-
-  const updateQuantity = (productId: string, delta: number): void => {
-    const raw = productsRaw.find((p) => p._id === productId);
-    const rawStock = Number(raw?.stock || 0);
-
-    setActiveOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== currentOrderId) return o;
-
+      const existing = o.items.find((it) => it._id === product._id);
+      if (existing) {
         return {
           ...o,
-          items: o.items
-            .map((it) => {
-              if (it._id !== productId) return it;
-              const nextQty = Number(it.quantity || 0) + delta;
-              if (nextQty <= 0) return { ...it, quantity: 0 };
-              const capped = rawStock > 0 ? Math.min(rawStock, nextQty) : nextQty;
-              return { ...it, quantity: capped };
-            })
-            .filter((it) => Number(it.quantity || 0) > 0),
+          items: o.items.map((it) =>
+            it._id === product._id
+              ? { ...it, quantity: Number(it.quantity || 0) + 1 }
+              : it
+          ),
         };
-      })
-    );
-  };
+      }
+
+      // ✅ add mới dù stock = 0 / âm
+      return { ...o, items: [...o.items, { ...product, quantity: 1 }] };
+    })
+  );
+};
+
+const updateQuantity = (productId: string, delta: number): void => {
+  // ✅ Không cần rawStock để cap nữa (vì cho phép âm kho)
+  // const raw = productsRaw.find((p) => p._id === productId);
+  // const rawStock = Number(raw?.stock || 0);
+
+  setActiveOrders((prev) =>
+    prev.map((o) => {
+      if (o.id !== currentOrderId) return o;
+
+      return {
+        ...o,
+        items: o.items
+          .map((it) => {
+            if (it._id !== productId) return it;
+
+            // ✅ chỉ chặn về 0 (không cho qty âm), còn lại cho tăng tự do
+            const nextQty = Number(it.quantity || 0) + delta;
+            if (nextQty <= 0) return { ...it, quantity: 0 };
+
+            return { ...it, quantity: nextQty };
+          })
+          .filter((it) => Number(it.quantity || 0) > 0),
+      };
+    })
+  );
+};
+
 
   const removeFromCart = (productId: string): void => {
     setActiveOrders((prev) =>
@@ -355,86 +364,91 @@ const AppInner: React.FC = () => {
   };
 
   const completeOrderWithStatus = async (
-    status: "PENDING" | "CONFIRM",
-    payload: {
-      branchId: string;
-      customer?: { name?: string; phone?: string; email?: string };
-      delivery: { method: "PICKUP" | "DELIVERY"; address?: string; note?: string };
-      payment: { method: "CASH" | "BANK" | "PENDING"; amount: number };
-      discount?: number;
-      extraFee?: number;
-      pricingNote?: string;
+  status: "PENDING" | "CONFIRM",
+  payload: {
+    branchId: string;
+    customer?: { name?: string; phone?: string; email?: string };
+    delivery: { method: "PICKUP" | "DELIVERY"; address?: string; note?: string };
+    payment: { method: "CASH" | "BANK" | "PENDING"; amount: number };
+    discount?: number;
+    extraFee?: number;
+    pricingNote?: string;
+  }
+) => {
+  const order = getCurrentOrderFn();
+  if (!order) throw new Error("NO_CURRENT_ORDER");
+  if (!payload.branchId || payload.branchId === "all") throw new Error("POS_BRANCH_REQUIRED");
+
+  const items = order.items.map((it) => ({ productId: it._id, qty: Number(it.quantity || 0) }));
+  if (!items.length) throw new Error("EMPTY_CART");
+
+  const key = "pos-create-order";
+  message.loading({ content: "Đang tạo đơn...", key });
+
+  // 1) CREATE ORDER (backend currently creates PENDING)
+  const res = await api.post("/orders", {
+    channel: "POS",
+    branchId: payload.branchId,
+
+    customer: payload.customer?.phone
+      ? {
+          phone: payload.customer.phone,
+          name: payload.customer.name || "",
+          email: payload.customer.email || "",
+        }
+      : undefined,
+
+    delivery: {
+      method: payload.delivery.method === "DELIVERY" ? "SHIP" : "PICKUP",
+      address: payload.delivery.address || "",
+      note: payload.delivery.note || (payload.delivery.method === "PICKUP" ? "Bán tại quầy" : ""),
+    },
+
+    discount: Number(payload.discount || 0),
+    extraFee: Number(payload.extraFee || 0),
+    pricingNote: payload.pricingNote || "",
+
+    items,
+  });
+
+  const created = res.data?.order;
+  if (!created?._id) {
+    message.error({ content: "Tạo đơn thất bại.", key });
+    throw new Error("ORDER_CREATE_FAILED");
+  }
+
+  // 2) CONFIRM if needed
+  if (status === "CONFIRM") {
+    const method = payload.payment.method;
+    if (method === "PENDING") {
+      message.error({ content: "Không thể CONFIRM với phương thức PENDING.", key });
+      throw new Error("PAYMENT_METHOD_INVALID_FOR_CONFIRM");
     }
-  ) => {
-    const order = getCurrentOrderFn();
-    if (!order) throw new Error("NO_CURRENT_ORDER");
-    if (!payload.branchId || payload.branchId === "all") throw new Error("POS_BRANCH_REQUIRED");
 
-    const items = order.items.map((it) => ({ productId: it._id, qty: Number(it.quantity || 0) }));
-    if (!items.length) throw new Error("EMPTY_CART");
-
-    const key = "pos-create-order";
-    message.loading({ content: "Đang tạo đơn...", key });
-
-    // 1) CREATE ORDER (backend currently creates PENDING)
-    const res = await api.post("/orders", {
-      channel: "POS",
-      branchId: payload.branchId,
-
-      customer: payload.customer?.phone
-        ? {
-            phone: payload.customer.phone,
-            name: payload.customer.name || "",
-            email: payload.customer.email || "",
-          }
-        : undefined,
-
-      delivery: {
-        method: payload.delivery.method === "DELIVERY" ? "SHIP" : "PICKUP",
-        address: payload.delivery.address || "",
-        note: payload.delivery.note || (payload.delivery.method === "PICKUP" ? "Bán tại quầy" : ""),
-      },
-
-      discount: Number(payload.discount || 0),
-      extraFee: Number(payload.extraFee || 0),
-      pricingNote: payload.pricingNote || "",
-
-      items,
+    const totalServer = Number(created?.total || 0);
+    await api.post(`/orders/${created._id}/confirm`, {
+      payment: { method, amount: totalServer },
     });
+  }
 
-    const created = res.data?.order;
-    if (!created?._id) {
-      message.error({ content: "Tạo đơn thất bại.", key });
-      throw new Error("ORDER_CREATE_FAILED");
-    }
+  // 3) reset cart
+  setActiveOrders((prev) =>
+    prev.map((o) => (o.id === currentOrderId ? { ...o, items: [], customer: "Khách lẻ" } : o))
+  );
 
-    // 2) CONFIRM if needed
-    if (status === "CONFIRM") {
-      const method = payload.payment.method;
-      if (method === "PENDING") {
-        message.error({ content: "Không thể CONFIRM với phương thức PENDING.", key });
-        throw new Error("PAYMENT_METHOD_INVALID_FOR_CONFIRM");
-      }
+  await fetchProducts();
 
-      const totalServer = Number(created?.total || 0);
-      await api.post(`/orders/${created._id}/confirm`, {
-        payment: { method, amount: totalServer },
-      });
-    }
+  message.success({
+    content: status === "CONFIRM" ? "Đã tạo & xác nhận đơn thành công!" : "Đã tạo đơn thành công!",
+    key,
+    duration: 2,
+  });
 
-    // 3) reset cart
-    setActiveOrders((prev) =>
-      prev.map((o) => (o.id === currentOrderId ? { ...o, items: [], customer: "Khách lẻ" } : o))
-    );
+  // ✅ IMPORTANT: return _id để POSSection in theo _id
+  return { orderId: created._id, order: created };
 
-    await fetchProducts();
+};
 
-    message.success({
-      content: status === "CONFIRM" ? "Đã tạo & xác nhận đơn thành công!" : "Đã tạo đơn thành công!",
-      key,
-      duration: 2,
-    });
-  };
 
   return (
     <Routes>
@@ -487,10 +501,10 @@ const AppInner: React.FC = () => {
 
         <Route path="orders" element={<OrdersSection />} />
         <Route path="products" element={<ProductInputSection />} />
-        <Route path="inventory" element={<InventorySection products={productsRaw as any} />} />
-        {/* <Route path="warehouse" element={<WarehouseSection />} />
+        <Route path="inventory" element={<InventorySection />} />
+        <Route path="warehouse" element={<WarehouseSection />} />
         <Route path="staff" element={<StaffSection />} />
-        <Route path="revenue" element={<RevenueSection products={productsRaw as any} />} /> */}
+        <Route path="revenue" element={<RevenueSection products={productsRaw as any} />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

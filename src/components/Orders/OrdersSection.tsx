@@ -12,17 +12,27 @@ import {
   User,
   Package,
   Store,
+  ChevronLeft,
+  ChevronRight,
+  Printer, // ✅ Thêm icon Printer
 } from "lucide-react";
 
-import api from "../../services/api"; // REACT_APP_API_URL (9009)
-import apiWrite from "../../services/apiWrite"; // REACT_APP_API_WRITE_URL (3000)
+import api from "../../services/api";
+import apiWrite from "../../services/apiWrite";
 import { getCurrentUser } from "../../services/authService";
 import { getActiveBranchId, setActiveBranchId } from "../../services/branchContext";
 
 // ===============================
 // Types
 // ===============================
-type OrderStatus = "PENDING" | "CONFIRM" | "CANCEL" | "CANCELLED" | "REFUND" | "SHIPPING" | string;
+type OrderStatus =
+  | "PENDING"
+  | "CONFIRM"
+  | "CANCEL"
+  | "CANCELLED"
+  | "REFUND"
+  | "SHIPPING"
+  | string;
 type PaymentMethod = "CASH" | "BANK";
 
 interface OrderItem {
@@ -91,6 +101,15 @@ interface Branch {
   name: string;
   address?: string;
   phone?: string;
+  isActive?: boolean;
+}
+
+interface UserRow {
+  _id: string;
+  username?: string;
+  name?: string;
+  role?: string;
+  branchId?: string | null;
   isActive?: boolean;
 }
 
@@ -165,11 +184,12 @@ const calcDiscount = (o?: OrderRow | null) => Number(o?.discount || 0);
 const calcTotal = (o?: OrderRow | null) =>
   o?.total != null ? Number(o.total || 0) : Math.max(0, calcSubtotal(o) - calcDiscount(o));
 
+const isObjectId = (s?: any) => /^[0-9a-fA-F]{24}$/.test(String(s || ""));
+
 // ===============================
 // Component
 // ===============================
 const OrdersSection: React.FC = () => {
-  // đọc user 1 lần khi render component
   const user = getCurrentUser();
   const role = String(user?.role || "").toUpperCase();
   const isStaff = role === "STAFF";
@@ -177,8 +197,6 @@ const OrdersSection: React.FC = () => {
 
   const [branches, setBranches] = useState<Branch[]>([]);
 
-  // ADMIN/MANAGER: "all" | "<id>" (sync với localStorage từ Layout)
-  // STAFF: luôn khóa theo staffBranch
   const [branchId, setBranchId] = useState<string>(() => {
     return isStaff ? staffBranch : getActiveBranchId(user);
   });
@@ -190,16 +208,86 @@ const OrdersSection: React.FC = () => {
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState<OrderRow | null>(null);
 
   const [updating, setUpdating] = useState(false);
 
-  // payment modal (only PENDING -> CONFIRM)
   const [payOpen, setPayOpen] = useState(false);
   const [payMethod, setPayMethod] = useState<PaymentMethod>("CASH");
   const [payAmount, setPayAmount] = useState<number>(0);
   const [paying, setPaying] = useState(false);
+
+  const [userById, setUserById] = useState<Map<string, UserRow>>(() => new Map());
+  const [usersLoading, setUsersLoading] = useState(false);
+
+  // ✅ Print base URL từ env
+  const PRINT_BASE = (process.env.REACT_APP_PRINT_BASE as string) || "http://localhost:9009";
+
+  // ✅ Helper in bill
+  const printBill = (orderId: string) => {
+    const id = String(orderId || "").trim();
+    if (!id) {
+      alert("Không có ID đơn hàng để in.");
+      return;
+    }
+    const url = `${PRINT_BASE}/print/receipt/${encodeURIComponent(id)}?paper=80&autoprint=1`;
+    const w = window.open(url, "_blank", "noopener,noreferrer,width=420,height=720");
+    if (!w) {
+      alert("Trình duyệt đang chặn popup. Vui lòng cho phép popup để in bill.");
+    }
+  };
+
+  const userLabel = useCallback(
+    (id?: string | null) => {
+      if (!id) return "—";
+      const key = String(id);
+      const u = userById.get(key);
+      if (!u) return key;
+      const name = u.name?.trim() || "";
+      const uname = u.username?.trim() || "";
+      const main = name || uname || key;
+      const r = u.role ? String(u.role).toUpperCase() : "";
+      return r ? `${main} (${r})` : main;
+    },
+    [userById]
+  );
+
+  const fetchUsersByIds = useCallback(async (ids: (string | null | undefined)[]) => {
+    const clean = Array.from(
+      new Set(
+        (ids || [])
+          .map((x) => String(x || "").trim())
+          .filter((x) => isObjectId(x))
+      )
+    );
+
+    if (clean.length === 0) return;
+
+    const missing = clean.filter((id) => !userById.has(id));
+    if (missing.length === 0) return;
+
+    setUsersLoading(true);
+    try {
+      const res = await api.post("/auth/by-ids", { ids: missing });
+      const items: UserRow[] = res.data?.items || [];
+
+      if (items && items.length) {
+        setUserById((prev) => {
+          const next = new Map(prev);
+          for (const u of items) next.set(String(u._id), u);
+          return next;
+        });
+      }
+    } catch (e: any) {
+      console.error("POST /auth/by-ids error:", e?.response?.data || e?.message);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [userById]);
 
   const fetchBranches = useCallback(async () => {
     try {
@@ -212,70 +300,73 @@ const OrdersSection: React.FC = () => {
     }
   }, []);
 
-  const fetchOrders = useCallback(async (bId: string) => {
-    setLoading(true);
-    try {
-      const url = bId && bId !== "all" ? `/orders?branchId=${encodeURIComponent(bId)}` : `/orders`;
-      const res = await api.get(url);
-      const items: OrderRow[] = res.data?.items || [];
-      setOrders(items);
-    } catch (e: any) {
-      console.error("GET /orders error:", e?.response?.data || e?.message);
-      setOrders([]);
-      alert(e?.response?.data?.message || "Không tải được danh sách đơn hàng");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const fetchOrders = useCallback(
+    async (bId: string) => {
+      setLoading(true);
+      try {
+        const url = bId && bId !== "all" ? `/orders?branchId=${encodeURIComponent(bId)}` : `/orders`;
+        const res = await api.get(url);
+        const items: OrderRow[] = res.data?.items || [];
+        setOrders(items);
 
-  // Boot: load branches + orders
+        const ids: (string | null | undefined)[] = [];
+        for (const o of items) {
+          ids.push(o.createdById);
+          ids.push(o.confirmedById);
+        }
+        fetchUsersByIds(ids);
+        
+        setPage(1);
+      } catch (e: any) {
+        console.error("GET /orders error:", e?.response?.data || e?.message);
+        setOrders([]);
+        alert(e?.response?.data?.message || "Không tải được danh sách đơn hàng");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchUsersByIds]
+  );
+
   useEffect(() => {
     fetchBranches();
 
     if (isStaff) {
-      // STAFF luôn khóa theo token
       setBranchId(staffBranch);
       fetchOrders(staffBranch);
       return;
     }
 
-    // ADMIN/MANAGER: theo localStorage (Layout)
     const current = getActiveBranchId(user);
     setBranchId(current);
     fetchOrders(current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ LISTEN event from Layout: "branch_changed"
   useEffect(() => {
     if (isStaff) return;
 
     const onBranchChanged = () => {
-      const next = getActiveBranchId(user); // đọc từ localStorage
+      const next = getActiveBranchId(user);
       setBranchId(next);
       fetchOrders(next);
-
-      // nếu đang mở detail mà order thuộc branch khác, vẫn cho xem (tùy bạn)
-      // ở đây không đóng modal để tránh mất thao tác
     };
 
     window.addEventListener("branch_changed", onBranchChanged);
     return () => window.removeEventListener("branch_changed", onBranchChanged);
   }, [isStaff, fetchOrders, user]);
 
-  // change branch (dropdown trong OrdersSection)
   const onChangeBranch = (id: string) => {
     if (isStaff) return;
     setBranchId(id);
-    setActiveBranchId(id); // ghi localStorage để Layout/Pages khác đồng bộ
-    window.dispatchEvent(new Event("branch_changed")); // đồng bộ ngược lại các page khác (nếu cần)
+    setActiveBranchId(id);
+    window.dispatchEvent(new Event("branch_changed"));
     fetchOrders(id);
   };
 
   const filteredSorted = useMemo(() => {
     const s = search.trim().toLowerCase();
 
-    // fallback lọc theo branch nếu backend trả all
     const byBranch =
       branchId === "all" ? orders : (orders || []).filter((o) => String(o.branchId || "") === branchId);
 
@@ -322,6 +413,17 @@ const OrdersSection: React.FC = () => {
     });
   }, [orders, search, sortKey, sortDir, branchId]);
 
+  const totalItems = filteredSorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+  const paginatedData = filteredSorted.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -333,6 +435,7 @@ const OrdersSection: React.FC = () => {
   const openDetail = (o: OrderRow) => {
     setSelected(o);
     setDetailOpen(true);
+    fetchUsersByIds([o.createdById, o.confirmedById]);
   };
 
   const closeDetail = () => {
@@ -344,23 +447,23 @@ const OrdersSection: React.FC = () => {
     const from = String(order.status || "").toUpperCase();
     const to = String(nextStatus || "").toUpperCase();
 
-    // PENDING -> CONFIRM => payment modal
     if (to === "CONFIRM" && from === "PENDING") {
       setSelected(order);
       setPayAmount(calcTotal(order));
       setPayMethod("CASH");
       setPayOpen(true);
+      fetchUsersByIds([order.createdById, order.confirmedById]);
       return;
     }
 
     setUpdating(true);
 
     const toBackendStatus = (s: string) => {
-  const x = String(s || "").toUpperCase();
-  if (x === "SHIPPING") return "SHIPPED";
-  if (x === "CANCEL") return "CANCELLED";
-  return x;
-};
+      const x = String(s || "").toUpperCase();
+      if (x === "SHIPPING") return "SHIPPED";
+      if (x === "CANCEL") return "CANCELLED";
+      return x;
+    };
 
     try {
       await apiWrite.patch(`/orders/${order._id}/status`, { status: toBackendStatus(to) });
@@ -412,6 +515,112 @@ const OrdersSection: React.FC = () => {
     </button>
   );
 
+  useEffect(() => {
+    if (detailOpen || payOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [detailOpen, payOpen]);
+
+  const PaginationControls = () => {
+    const pages: (number | string)[] = [];
+    const maxVisible = 5;
+
+    if (totalPages <= maxVisible + 2) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      
+      if (currentPage <= 3) {
+        for (let i = 2; i <= Math.min(maxVisible, totalPages - 1); i++) pages.push(i);
+        pages.push("...");
+      } else if (currentPage >= totalPages - 2) {
+        pages.push("...");
+        for (let i = Math.max(2, totalPages - maxVisible + 1); i < totalPages; i++) pages.push(i);
+      } else {
+        pages.push("...");
+        for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
+        pages.push("...");
+      }
+      
+      pages.push(totalPages);
+    }
+
+    return (
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-gray-50 border-t">
+        <div className="text-sm text-gray-600">
+          Hiển thị <b>{startIndex + 1}</b> - <b>{endIndex}</b> trong tổng số <b>{totalItems}</b> đơn
+        </div>
+
+        <div className="flex items-center gap-2">
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+            className="px-2 py-1 border border-gray-300 rounded text-sm outline-none focus:ring-2 focus:ring-pink-500"
+          >
+            <option value={10}>10/trang</option>
+            <option value={20}>20/trang</option>
+            <option value={50}>50/trang</option>
+            <option value={100}>100/trang</option>
+          </select>
+
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="p-2 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Trang trước"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+
+          <div className="flex items-center gap-1">
+            {pages.map((p, idx) => {
+              if (p === "...") {
+                return (
+                  <span key={`dot-${idx}`} className="px-2 text-gray-500">
+                    ...
+                  </span>
+                );
+              }
+
+              const pageNum = p as number;
+              const isActive = pageNum === currentPage;
+
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setPage(pageNum)}
+                  className={`min-w-[36px] px-3 py-1 rounded text-sm font-semibold transition-colors ${
+                    isActive
+                      ? "bg-pink-500 text-white"
+                      : "bg-white border border-gray-300 hover:bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="p-2 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Trang sau"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Header + Branch Filter */}
@@ -419,12 +628,11 @@ const OrdersSection: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-gray-800">Quản lý đơn hàng</h2>
           <p className="text-sm text-gray-600 mt-1">
-            Tổng: <b>{filteredSorted.length}</b> đơn
+            Tổng: <b>{totalItems}</b> đơn
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-
           <button
             type="button"
             onClick={() => fetchOrders(branchId)}
@@ -484,7 +692,7 @@ const OrdersSection: React.FC = () => {
                 </tr>
               )}
 
-              {!loading && filteredSorted.length === 0 && (
+              {!loading && paginatedData.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                     Không có đơn hàng.
@@ -493,7 +701,7 @@ const OrdersSection: React.FC = () => {
               )}
 
               {!loading &&
-                filteredSorted.map((o) => {
+                paginatedData.map((o) => {
                   const cfg = statusConfig(o.status);
                   const qty = sumQty(o.items);
                   const total = calcTotal(o);
@@ -582,7 +790,7 @@ const OrdersSection: React.FC = () => {
 
         {/* Mobile list */}
         <div className="md:hidden divide-y divide-gray-200">
-          {filteredSorted.map((o) => {
+          {paginatedData.map((o) => {
             const cfg = statusConfig(o.status);
             return (
               <div key={o._id} className="p-4">
@@ -614,26 +822,48 @@ const OrdersSection: React.FC = () => {
           })}
 
           {loading && <div className="p-6 text-center text-gray-500">Đang tải...</div>}
-          {!loading && filteredSorted.length === 0 && <div className="p-6 text-center text-gray-500">Không có đơn.</div>}
+          {!loading && paginatedData.length === 0 && <div className="p-6 text-center text-gray-500">Không có đơn.</div>}
         </div>
+
+        {!loading && totalItems > 0 && <PaginationControls />}
       </div>
 
       {/* Detail Modal */}
       {detailOpen && selected && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b">
-              <div className="min-w-0">
-                <div className="font-bold text-gray-800 truncate">Chi tiết đơn: {selected.code}</div>
-                <div className="text-xs text-gray-500">#{selected._id}</div>
-              </div>
-              <button onClick={() => { setDetailOpen(false); setSelected(null); }} className="p-2 hover:bg-gray-100 rounded-lg">
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
-            </div>
+           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+  {/* Left: Title */}
+  <div className="min-w-0 flex-1">
+    <div className="font-bold text-gray-800 truncate">Chi tiết đơn: {selected.code}</div>
+    <div className="text-xs text-gray-500">#{selected._id}</div>
+  </div>
 
-            <div className="p-4 space-y-4">
+  {/* Right: Actions */}
+  <div className="flex items-center gap-2 flex-shrink-0">
+    {/* Print button */}
+    <button
+      onClick={() => printBill(selected._id)}
+      className="px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-semibold flex items-center gap-2 transition-colors"
+      title="In hoá đơn 80mm"
+    >
+      <Printer className="w-4 h-4" />
+      <span className="hidden sm:inline">In Bill</span>
+    </button>
+
+    {/* Close button */}
+    <button 
+      onClick={() => { setDetailOpen(false); setSelected(null); }} 
+      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+      title="Đóng"
+    >
+      <X className="w-5 h-5 text-gray-600" />
+    </button>
+  </div>
+</div>
+
+            <div className="p-4 space-y-4 overflow-y-auto">
               {/* Summary */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div className="bg-gray-50 rounded-lg p-3">
@@ -701,13 +931,25 @@ const OrdersSection: React.FC = () => {
                     </div>
 
                     <div className="flex justify-between gap-3">
-                      <span className="text-gray-500">CreatedBy</span>
-                      <span className="font-mono text-xs text-right">{selected.createdById || "—"}</span>
+                      <span className="text-gray-500">Người Tạo</span>
+                      <div className="text-right">
+                        <div className="font-semibold">
+                          {usersLoading && isObjectId(selected.createdById) && !userById.has(String(selected.createdById))
+                            ? "Đang tải..."
+                            : userLabel(selected.createdById)}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="flex justify-between gap-3">
-                      <span className="text-gray-500">ConfirmedBy</span>
-                      <span className="font-mono text-xs text-right">{selected.confirmedById || "—"}</span>
+                      <span className="text-gray-500">Người Xác Nhận</span>
+                      <div className="text-right">
+                        <div className="font-semibold">
+                          {usersLoading && isObjectId(selected.confirmedById) && !userById.has(String(selected.confirmedById))
+                            ? "Đang tải..."
+                            : userLabel(selected.confirmedById)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -817,35 +1059,6 @@ const OrdersSection: React.FC = () => {
                 );
               })()}
 
-              {/* Stock allocations */}
-              <div className="border rounded-lg overflow-hidden">
-                <div className="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-700">
-                  Xuất kho / phân bổ tồn (stockAllocations)
-                </div>
-                <div className="p-3">
-                  {selected.stockAllocations && selected.stockAllocations.length > 0 ? (
-                    <div className="space-y-2">
-                      {selected.stockAllocations.map((a, idx) => (
-                        <div
-                          key={idx}
-                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2"
-                        >
-                          <div className="text-sm text-gray-700">
-                            Branch: <span className="font-mono text-xs">{a.branchId}</span>
-                          </div>
-                          <div className="text-sm text-gray-700">
-                            Product: <span className="font-mono text-xs">{a.productId}</span>
-                          </div>
-                          <div className="text-sm font-bold text-gray-900">Qty: {a.qty}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-gray-500">Không có phân bổ tồn.</div>
-                  )}
-                </div>
-              </div>
-
               {/* Items */}
               <div className="border rounded-lg overflow-hidden">
                 <div className="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-700">
@@ -884,32 +1097,38 @@ const OrdersSection: React.FC = () => {
                 </div>
               </div>
 
-              {/* Actions */}
-              {String(selected.status).toUpperCase() === "PENDING" ? (
-                <div className="flex gap-2">
-                  <button
-                    disabled={updating}
-                    onClick={() => changeStatus(selected, "CONFIRM")}
-                    className="flex-1 px-4 py-2 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-bold"
-                    title="Xác nhận & thanh toán"
-                  >
-                    Xác nhận (Pay)
-                  </button>
-                  <button
-                    disabled={updating}
-                    onClick={() => changeStatus(selected, "CANCEL")}
-                    className="flex-1 px-4 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-bold"
-                  >
-                    Hủy
-                  </button>
-                </div>
-              ) : (
-                <div className="text-sm text-gray-500">
-                  Đơn đang ở trạng thái <b>{String(selected.status)}</b>. <br />
-                  Shipped: {selected.shippedAt ? fmtDateTime(selected.shippedAt) : "—"} • Refunded:{" "}
-                  {selected.refundedAt ? fmtDateTime(selected.refundedAt) : "—"}
-                </div>
-              )}
+              {/* ✅ Actions - Thêm nút In bill */}
+              <div className="space-y-2">
+                {/* Nút In bill (luôn hiển thị) */}
+                
+
+                {/* Actions theo status */}
+                {String(selected.status).toUpperCase() === "PENDING" ? (
+                  <div className="flex gap-2">
+                    <button
+                      disabled={updating}
+                      onClick={() => changeStatus(selected, "CONFIRM")}
+                      className="flex-1 px-4 py-2 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-bold"
+                      title="Xác nhận & thanh toán"
+                    >
+                      Xác nhận (Pay)
+                    </button>
+                    <button
+                      disabled={updating}
+                      onClick={() => changeStatus(selected, "CANCEL")}
+                      className="flex-1 px-4 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-bold"
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500 text-center bg-gray-50 rounded-lg p-3">
+                    Đơn đang ở trạng thái <b>{String(selected.status)}</b>. <br />
+                    Shipped: {selected.shippedAt ? fmtDateTime(selected.shippedAt) : "—"} • Refunded:{" "}
+                    {selected.refundedAt ? fmtDateTime(selected.refundedAt) : "—"}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -917,8 +1136,8 @@ const OrdersSection: React.FC = () => {
 
       {/* Payment Modal */}
       {payOpen && selected && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <div className="font-bold text-gray-800">Thanh toán & xác nhận đơn</div>
               <button onClick={() => setPayOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
@@ -926,7 +1145,7 @@ const OrdersSection: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-4 overflow-y-auto">
               <div className="bg-gray-50 rounded-lg p-3">
                 <div className="text-xs text-gray-500">Đơn</div>
                 <div className="font-semibold text-gray-800">{selected.code}</div>
