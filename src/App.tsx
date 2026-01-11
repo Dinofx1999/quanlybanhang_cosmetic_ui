@@ -12,6 +12,7 @@ import WarehouseSection from "./components/Warehouse/WarehouseSection";
 import StaffSection from "./components/Staff/StaffSection";
 import RevenueSection from "./components/Revenue/RevenueSection";
 import ProtectedRoute from "./components/Auth/ProtectedRoute";
+import ShopSettings from "./components/ShopSettings/ShopSettings";
 import { BRANCH_KEY, getPosBranchId } from "./services/branchContext";
 
 import { isAuthenticated, getCurrentUser } from "./services/authService";
@@ -504,6 +505,14 @@ const updateQuantity = (productId: string, delta: number): void => {
         <Route path="inventory" element={<InventorySection />} />
         <Route path="warehouse" element={<WarehouseSection />} />
         <Route path="staff" element={<StaffSection />} />
+        <Route
+                path="shop-settings"
+                element={
+                  <ShopSettings
+                    branchId={posBranchId}
+                  />
+                }
+              />
         <Route path="revenue" element={<RevenueSection products={productsRaw as any} />} />
       </Route>
 

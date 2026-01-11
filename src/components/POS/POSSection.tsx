@@ -1306,7 +1306,7 @@ const onSubmitPayment = async () => {
   }}
   className="w-full px-4 py-3 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-extrabold"
 >
-  In bill 80mm
+  In bill
 </button>
 
 
