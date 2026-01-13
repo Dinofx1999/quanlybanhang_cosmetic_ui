@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+// src/components/Orders/OrdersSection.tsx
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Eye,
   RefreshCw,
@@ -14,8 +15,16 @@ import {
   Store,
   ChevronLeft,
   ChevronRight,
-  Printer, // ✅ Thêm icon Printer
+  Printer,
+  Gift,
+  TrendingUp,
+  AlertCircle,
+  CheckCircle2,
+  Plus,
+  Wallet,
 } from "lucide-react";
+
+import { Checkbox, message } from "antd";
 
 import api from "../../services/api";
 import apiWrite from "../../services/apiWrite";
@@ -28,12 +37,14 @@ import { getActiveBranchId, setActiveBranchId } from "../../services/branchConte
 type OrderStatus =
   | "PENDING"
   | "CONFIRM"
+  | "DEBT"
   | "CANCEL"
   | "CANCELLED"
   | "REFUND"
   | "SHIPPING"
   | string;
-type PaymentMethod = "CASH" | "BANK";
+
+type PaymentMethodUI = "CASH" | "BANK" | "CARD" | "WALLET";
 
 interface OrderItem {
   productId: string;
@@ -45,7 +56,7 @@ interface OrderItem {
 }
 
 interface OrderPayment {
-  method: PaymentMethod | string;
+  method: PaymentMethodUI | string;
   amount: number;
 }
 
@@ -69,12 +80,26 @@ interface OrderRow {
   channel?: string;
   status: OrderStatus;
   branchId?: string | null;
+  pointsEarned?: number;
 
   customerId?: string;
 
   subtotal?: number;
   discount?: number;
+  extraFee?: number;
   total?: number;
+  pricingNote?: string;
+
+  pointsRedeemed?: number;
+  pointsRedeemAmount?: number;
+  pointsRedeemedAt?: string | null;
+  pointsRedeemRevertedAt?: string | null;
+
+  pointsAppliedAt?: string | null;
+  pointsRevertedAt?: string | null;
+  loyaltyAppliedAt?: string | null;
+
+  debtAmount?: number;
 
   items: OrderItem[];
   payments?: OrderPayment[];
@@ -113,6 +138,40 @@ interface UserRow {
   isActive?: boolean;
 }
 
+type CustomerTierInfo = {
+  code?: string;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  locked?: boolean;
+  permanent?: boolean;
+};
+
+type CustomerDTO = {
+  _id: string;
+  name?: string;
+  phone?: string;
+  points?: number;
+
+  tier?: CustomerTierInfo;
+
+  tierProgress?: {
+    resetAt?: string | null;
+    spendForTier?: number;
+  };
+};
+
+type PaymentRow = {
+  id: string;
+  method: PaymentMethodUI;
+  amountText: string;
+};
+
+type RedeemPolicy = {
+  enabled: boolean;
+  maxPoints: number;
+  redeemAmount: number;
+};
+
 // ===============================
 // Helpers
 // ===============================
@@ -132,18 +191,15 @@ const statusConfig = (status: string) => {
   const map: Record<string, { bg: string; text: string; label: string }> = {
     PENDING: { bg: "bg-yellow-50", text: "text-yellow-700", label: "⏳ PENDING" },
     CONFIRM: { bg: "bg-green-50", text: "text-green-700", label: "✓ CONFIRM" },
+    DEBT: { bg: "bg-amber-50", text: "text-amber-700", label: "💳 DEBT" },
     SHIPPING: { bg: "bg-blue-50", text: "text-blue-700", label: "🚚 SHIPPING" },
+    SHIPPED: { bg: "bg-blue-50", text: "text-blue-700", label: "🚚 SHIPPED" },
     CANCEL: { bg: "bg-red-50", text: "text-red-700", label: "✕ CANCEL" },
     CANCELLED: { bg: "bg-red-50", text: "text-red-700", label: "✕ CANCELLED" },
     REFUND: { bg: "bg-purple-50", text: "text-purple-700", label: "↩ REFUND" },
+    REFUNDED: { bg: "bg-purple-50", text: "text-purple-700", label: "↩ REFUNDED" },
   };
-  return (
-    map[s] || {
-      bg: "bg-gray-100",
-      text: "text-gray-700",
-      label: s || "UNKNOWN",
-    }
-  );
+  return map[s] || { bg: "bg-gray-100", text: "text-gray-700", label: s || "UNKNOWN" };
 };
 
 type SortKey = "code" | "createdAt" | "status" | "itemsQty" | "total";
@@ -158,14 +214,16 @@ const compare = (a: any, b: any) => {
 };
 
 const sumQty = (items?: OrderItem[]) => (items || []).reduce((s, it) => s + Number(it.qty || 0), 0);
-
-const sumPaid = (payments?: OrderPayment[]) =>
-  (payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+const sumPaid = (payments?: OrderPayment[]) => (payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
 
 const payMethodLabel = (m?: string) => {
   const x = String(m || "").toUpperCase();
   if (x === "CASH") return "Tiền mặt";
   if (x === "BANK") return "Chuyển khoản";
+  if (x === "CARD") return "Thẻ";
+  if (x === "WALLET") return "Ví điện tử";
+  if (x === "COD") return "COD";
+  if (x === "PENDING") return "Chưa thu";
   return x || "—";
 };
 
@@ -180,26 +238,111 @@ const calcSubtotal = (o?: OrderRow | null) =>
     : (o?.items || []).reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 0), 0);
 
 const calcDiscount = (o?: OrderRow | null) => Number(o?.discount || 0);
+const calcExtraFee = (o?: OrderRow | null) => Number(o?.extraFee || 0);
+const calcRedeemAmount = (o?: OrderRow | null) => Number(o?.pointsRedeemAmount || 0);
 
-const calcTotal = (o?: OrderRow | null) =>
-  o?.total != null ? Number(o.total || 0) : Math.max(0, calcSubtotal(o) - calcDiscount(o));
+// Total on UI should match server: base = subtotal - discount + extraFee, then minus redeem
+const calcBaseAmount = (o?: OrderRow | null) => Math.max(0, calcSubtotal(o) - calcDiscount(o) + calcExtraFee(o));
+
+const calcTotal = (o?: OrderRow | null) => {
+  const base = calcBaseAmount(o);
+  const redeem = Math.max(0, calcRedeemAmount(o));
+  const t = o?.total != null ? Number(o.total || 0) : Math.max(0, base - redeem);
+  return Math.max(0, t);
+};
+
+const calcDue = (o?: OrderRow | null) => {
+  const total = calcTotal(o);
+  const paid = sumPaid(o?.payments);
+  return Math.max(0, total - paid);
+};
+
+const isDebtOrder = (o?: OrderRow | null) => {
+  const st = String(o?.status || "").toUpperCase();
+  if (st === "DEBT") return true;
+  if (st === "CONFIRM") return calcDue(o) > 0;
+  return false;
+};
 
 const isObjectId = (s?: any) => /^[0-9a-fA-F]{24}$/.test(String(s || ""));
+
+const clamp0 = (n: number) => (n < 0 ? 0 : n);
+const toNumberSafe = (v: any) => {
+  const n = Number(String(v ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+// ===============================
+// Payment "smooth" engine (NO useEffect)
+// ===============================
+const METHODS: PaymentMethodUI[] = ["CASH", "BANK", "CARD", "WALLET"];
+
+const normMethod = (m: any): PaymentMethodUI => {
+  const x = String(m || "").toUpperCase();
+  return (METHODS as string[]).includes(x) ? (x as PaymentMethodUI) : "CASH";
+};
+
+const toAmountInt = (v: any) => Math.round(clamp0(toNumberSafe(v)));
+
+const pickNextMethod = (rows: PaymentRow[], preferred?: PaymentMethodUI): PaymentMethodUI => {
+  const used = new Set(rows.map((r) => normMethod(r.method)));
+  if (preferred && !used.has(preferred)) return preferred;
+  for (const m of METHODS) if (!used.has(m)) return m;
+  // dùng hết rồi thì cho trùng (hiếm)
+  return preferred || "BANK";
+};
+
+const ensureUniqueMethods = (rows: PaymentRow[]) => {
+  const used = new Set<string>();
+  const next = rows.map((r) => {
+    let m = normMethod(r.method);
+    if (!used.has(m)) {
+      used.add(m);
+      return { ...r, method: m };
+    }
+    // trùng -> gán method khác chưa dùng
+    const newM = pickNextMethod(
+      rows
+        .filter((x) => x.id !== r.id)
+        .map((x) => ({ ...x, method: normMethod(x.method) })),
+      m
+    );
+    used.add(newM);
+    return { ...r, method: newM };
+  });
+  return next;
+};
+
+// autoRow = dòng “nhận phần còn lại”
+const rebalanceRows = (rowsIn: PaymentRow[], target: number, autoId?: string) => {
+  const rows0 = ensureUniqueMethods(rowsIn.map((r) => ({ ...r, method: normMethod(r.method) })));
+  if (rows0.length === 0) return rows0;
+
+  const targetTotal = Math.max(0, Math.round(target || 0));
+  const auto = autoId && rows0.some((r) => r.id === autoId) ? autoId : rows0[rows0.length - 1].id;
+
+  const amounts = rows0.map((r) => toAmountInt(r.amountText));
+  const idxAuto = rows0.findIndex((r) => r.id === auto);
+
+  const sumOthers = amounts.reduce((s, n, i) => (i === idxAuto ? s : s + n), 0);
+  const remain = Math.max(0, targetTotal - sumOthers);
+
+  return rows0.map((r, i) => (i === idxAuto ? { ...r, amountText: String(remain) } : r));
+};
 
 // ===============================
 // Component
 // ===============================
 const OrdersSection: React.FC = () => {
+  const [messageApi, contextHolder] = message.useMessage();
   const user = getCurrentUser();
   const role = String(user?.role || "").toUpperCase();
   const isStaff = role === "STAFF";
   const staffBranch = user?.branchId ? String(user.branchId) : "";
 
   const [branches, setBranches] = useState<Branch[]>([]);
-
-  const [branchId, setBranchId] = useState<string>(() => {
-    return isStaff ? staffBranch : getActiveBranchId(user);
-  });
+  const [branchId, setBranchId] = useState<string>(() => (isStaff ? staffBranch : getActiveBranchId(user)));
 
   const [loading, setLoading] = useState(false);
   const [orders, setOrders] = useState<OrderRow[]>([]);
@@ -217,28 +360,46 @@ const OrdersSection: React.FC = () => {
   const [updating, setUpdating] = useState(false);
 
   const [payOpen, setPayOpen] = useState(false);
-  const [payMethod, setPayMethod] = useState<PaymentMethod>("CASH");
-  const [payAmount, setPayAmount] = useState<number>(0);
+  const [payMode, setPayMode] = useState<"CONFIRM" | "DEBT">("CONFIRM");
   const [paying, setPaying] = useState(false);
+
+  const [payRows, setPayRows] = useState<PaymentRow[]>([{ id: uid(), method: "CASH", amountText: "" }]);
+  const [activePayRowId, setActivePayRowId] = useState<string>("");
+
+  const [autoRowId, setAutoRowId] = useState<string>("");
+  const autoRowIdRef = useRef<string>("");
+  useEffect(() => {
+    autoRowIdRef.current = autoRowId;
+  }, [autoRowId]);
 
   const [userById, setUserById] = useState<Map<string, UserRow>>(() => new Map());
   const [usersLoading, setUsersLoading] = useState(false);
 
-  // ✅ Print base URL từ env
+  const [customerLoading, setCustomerLoading] = useState(false);
+  const [customer, setCustomer] = useState<CustomerDTO | null>(null);
+
+  const [useRedeem, setUseRedeem] = useState(false);
+  const [redeemPolicy, setRedeemPolicy] = useState<RedeemPolicy | null>(null);
+  const [redeemLoading, setRedeemLoading] = useState(false);
+
   const PRINT_BASE = (process.env.REACT_APP_PRINT_BASE as string) || "http://localhost:9009";
 
-  // ✅ Helper in bill
+  const success = (mes: string) => {
+    messageApi.open({ type: "success", content: mes });
+  };
+  const error = (mes: string) => {
+    messageApi.open({ type: "error", content: mes });
+  };
+
   const printBill = (orderId: string) => {
     const id = String(orderId || "").trim();
     if (!id) {
-      alert("Không có ID đơn hàng để in.");
+      error("Không có ID đơn hàng để in.");
       return;
     }
     const url = `${PRINT_BASE}/print/receipt/${encodeURIComponent(id)}?paper=80&autoprint=1`;
     const w = window.open(url, "_blank", "noopener,noreferrer,width=420,height=720");
-    if (!w) {
-      alert("Trình duyệt đang chặn popup. Vui lòng cho phép popup để in bill.");
-    }
+    if (!w) error("Trình duyệt đang chặn popup. Vui lòng cho phép popup để in bill.");
   };
 
   const userLabel = useCallback(
@@ -256,38 +417,33 @@ const OrdersSection: React.FC = () => {
     [userById]
   );
 
-  const fetchUsersByIds = useCallback(async (ids: (string | null | undefined)[]) => {
-    const clean = Array.from(
-      new Set(
-        (ids || [])
-          .map((x) => String(x || "").trim())
-          .filter((x) => isObjectId(x))
-      )
-    );
+  const fetchUsersByIds = useCallback(
+    async (ids: (string | null | undefined)[]) => {
+      const clean = Array.from(new Set((ids || []).map((x) => String(x || "").trim()).filter((x) => isObjectId(x))));
+      if (clean.length === 0) return;
 
-    if (clean.length === 0) return;
+      const missing = clean.filter((id) => !userById.has(id));
+      if (missing.length === 0) return;
 
-    const missing = clean.filter((id) => !userById.has(id));
-    if (missing.length === 0) return;
-
-    setUsersLoading(true);
-    try {
-      const res = await api.post("/auth/by-ids", { ids: missing });
-      const items: UserRow[] = res.data?.items || [];
-
-      if (items && items.length) {
-        setUserById((prev) => {
-          const next = new Map(prev);
-          for (const u of items) next.set(String(u._id), u);
-          return next;
-        });
+      setUsersLoading(true);
+      try {
+        const res = await api.post("/auth/by-ids", { ids: missing });
+        const items: UserRow[] = res.data?.items || [];
+        if (items && items.length) {
+          setUserById((prev) => {
+            const next = new Map(prev);
+            for (const u of items) next.set(String(u._id), u);
+            return next;
+          });
+        }
+      } catch (e: any) {
+        console.error("POST /auth/by-ids error:", e?.response?.data || e?.message);
+      } finally {
+        setUsersLoading(false);
       }
-    } catch (e: any) {
-      console.error("POST /auth/by-ids error:", e?.response?.data || e?.message);
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [userById]);
+    },
+    [userById]
+  );
 
   const fetchBranches = useCallback(async () => {
     try {
@@ -315,12 +471,12 @@ const OrdersSection: React.FC = () => {
           ids.push(o.confirmedById);
         }
         fetchUsersByIds(ids);
-        
+
         setPage(1);
       } catch (e: any) {
         console.error("GET /orders error:", e?.response?.data || e?.message);
         setOrders([]);
-        alert(e?.response?.data?.message || "Không tải được danh sách đơn hàng");
+        error(e?.response?.data?.message || "Không tải được danh sách đơn hàng");
       } finally {
         setLoading(false);
       }
@@ -328,12 +484,83 @@ const OrdersSection: React.FC = () => {
     [fetchUsersByIds]
   );
 
+  const fetchCustomer = useCallback(async (customerId?: string | null, bId?: string) => {
+    const cid = String(customerId || "").trim();
+    const bid = String(bId || "").trim();
+
+    if (!cid || !isObjectId(cid) || !bid || bid === "all") {
+      setCustomer(null);
+      return null;
+    }
+
+    setCustomerLoading(true);
+    try {
+      const res = await api.get(`/customers/${encodeURIComponent(cid)}?branchId=${encodeURIComponent(bid)}`);
+      const c: CustomerDTO | null = res.data?.customer || null;
+      setCustomer(c);
+      return c;
+    } catch (e: any) {
+      console.error("GET /customers/:id error:", e?.response?.data || e?.message);
+      setCustomer(null);
+      return null;
+    } finally {
+      setCustomerLoading(false);
+    }
+  }, []);
+
+  /**
+   * ✅ Fix 404: Server của bạn có POST /api/loyalty-settings/calc-redeem (không có GET /loyalty/calc-redeem)
+   * - Body: { branchId, customerId, baseAmount, points }
+   * - Để lấy "maxPoints" + "amount", gửi points = số rất lớn (server tự clamp theo policy + customerPoints)
+   */
+  const fetchRedeemPolicy = useCallback(
+    async (order: OrderRow, customerPoints?: number | null) => {
+      const cid = order.customerId;
+      const bid = order.branchId;
+      const baseAmount = calcBaseAmount(order);
+
+      if (!cid || !isObjectId(cid) || !bid || bid === "all" || baseAmount <= 0) {
+        setRedeemPolicy(null);
+        return;
+      }
+
+      setRedeemLoading(true);
+      try {
+        const pts = Math.max(0, Number(customerPoints ?? customer?.points ?? 0));
+        const reqPts = pts > 0 ? pts : 999999999; // fallback lấy max theo policy
+        const res = await api.post(`/loyalty-settings/calc-redeem`, {
+          branchId: bid,
+          customerId: cid,
+          baseAmount,
+          points: reqPts,
+        });
+
+        const data = res.data || {};
+        const maxPoints = Number(data.maxPoints || 0);
+        const amount = Number(data.amount || 0);
+        const redeemEnable = !!data.redeemEnable;
+
+        setRedeemPolicy({
+          enabled: redeemEnable && maxPoints > 0 && amount > 0,
+          maxPoints,
+          redeemAmount: amount,
+        });
+      } catch (e: any) {
+        console.error("POST /loyalty-settings/calc-redeem error:", e?.response?.data || e?.message);
+        setRedeemPolicy(null);
+      } finally {
+        setRedeemLoading(false);
+      }
+    },
+    [customer?.points]
+  );
+
   useEffect(() => {
     fetchBranches();
 
     if (isStaff) {
       setBranchId(staffBranch);
-      fetchOrders(staffBranch);
+      if (staffBranch) fetchOrders(staffBranch);
       return;
     }
 
@@ -367,8 +594,7 @@ const OrdersSection: React.FC = () => {
   const filteredSorted = useMemo(() => {
     const s = search.trim().toLowerCase();
 
-    const byBranch =
-      branchId === "all" ? orders : (orders || []).filter((o) => String(o.branchId || "") === branchId);
+    const byBranch = branchId === "all" ? orders : (orders || []).filter((o) => String(o.branchId || "") === branchId);
 
     const filtered = byBranch.filter((o) => {
       if (!s) return true;
@@ -378,14 +604,7 @@ const OrdersSection: React.FC = () => {
       const channel = String(o.channel || "").toLowerCase();
       const receiver = String(o.delivery?.receiverName || "").toLowerCase();
       const phone = String(o.delivery?.receiverPhone || "").toLowerCase();
-      return (
-        code.includes(s) ||
-        status.includes(s) ||
-        b.includes(s) ||
-        channel.includes(s) ||
-        receiver.includes(s) ||
-        phone.includes(s)
-      );
+      return code.includes(s) || status.includes(s) || b.includes(s) || channel.includes(s) || receiver.includes(s) || phone.includes(s);
     });
 
     const getValue = (o: OrderRow) => {
@@ -399,7 +618,7 @@ const OrdersSection: React.FC = () => {
         case "itemsQty":
           return sumQty(o.items);
         case "total":
-          return Number(o.total ?? o.subtotal ?? 0);
+          return calcTotal(o);
         default:
           return "";
       }
@@ -420,9 +639,7 @@ const OrdersSection: React.FC = () => {
   const endIndex = Math.min(startIndex + pageSize, totalItems);
   const paginatedData = filteredSorted.slice(startIndex, endIndex);
 
-  useEffect(() => {
-    setPage(1);
-  }, [search]);
+  useEffect(() => setPage(1), [search]);
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -436,11 +653,83 @@ const OrdersSection: React.FC = () => {
     setSelected(o);
     setDetailOpen(true);
     fetchUsersByIds([o.createdById, o.confirmedById]);
+    fetchCustomer(o.customerId, branchId);
   };
 
   const closeDetail = () => {
     setDetailOpen(false);
     setSelected(null);
+    setCustomer(null);
+  };
+
+  useEffect(() => {
+    if (detailOpen && selected?.customerId) fetchCustomer(selected.customerId, branchId);
+  }, [detailOpen, selected?.customerId, branchId, fetchCustomer]);
+
+  const toBackendStatus = (s: string) => {
+    const x = String(s || "").toUpperCase();
+    if (x === "SHIPPING") return "SHIPPED";
+    if (x === "CANCEL") return "CANCELLED";
+    if (x === "REFUND") return "REFUNDED";
+    return x;
+  };
+
+  // ===== Payments smooth funcs =====
+  const addPayMethodRow = (targetTotal: number) => {
+    setPayRows((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      const method = pickNextMethod(rows, "BANK");
+      const row: PaymentRow = { id: uid(), method, amountText: "0" };
+      const next = [...rows, row];
+
+      setAutoRowId(row.id);
+      setActivePayRowId(row.id);
+
+      return rebalanceRows(next, targetTotal, row.id);
+    });
+  };
+
+  const removePayRow = (id: string, targetTotal: number) => {
+    setPayRows((prev) => {
+      let rows = (Array.isArray(prev) ? prev : []).filter((x) => x.id !== id);
+
+      if (rows.length === 0) {
+        const first: PaymentRow = { id: uid(), method: "CASH", amountText: String(targetTotal) };
+        setAutoRowId(first.id);
+        setActivePayRowId(first.id);
+        return [first];
+      }
+
+      const nextAuto = autoRowIdRef.current === id ? rows[rows.length - 1].id : autoRowIdRef.current;
+      setAutoRowId(nextAuto || rows[rows.length - 1].id);
+
+      if (activePayRowId === id) setActivePayRowId(rows[0].id);
+
+      return rebalanceRows(rows, targetTotal, nextAuto || rows[rows.length - 1].id);
+    });
+  };
+
+  const updatePayRow = (id: string, patch: Partial<PaymentRow>, targetTotal: number) => {
+    setPayRows((prev) => {
+      let rows = Array.isArray(prev) ? prev : [];
+      rows = rows.map((x) => (x.id === id ? { ...x, ...patch } : x));
+      rows = ensureUniqueMethods(rows);
+
+      // CONFIRM: nếu mới có 1 dòng và user nhập amount => tự thêm dòng 2 để nhận phần còn lại
+      if (payMode === "CONFIRM" && rows.length === 1 && patch.amountText != null) {
+        const a0 = toAmountInt(rows[0].amountText);
+        if (a0 > 0 && a0 < Math.round(targetTotal)) {
+          const second: PaymentRow = { id: uid(), method: pickNextMethod(rows, "BANK"), amountText: "0" };
+          rows = [...rows, second];
+          setAutoRowId(second.id);
+        }
+      }
+
+      if (patch.method) setActivePayRowId(id);
+
+      const autoId = autoRowIdRef.current || rows[rows.length - 1].id;
+      return rebalanceRows(rows, targetTotal, autoId);
+    });
   };
 
   const changeStatus = async (order: OrderRow, nextStatus: OrderStatus) => {
@@ -449,29 +738,37 @@ const OrdersSection: React.FC = () => {
 
     if (to === "CONFIRM" && from === "PENDING") {
       setSelected(order);
-      setPayAmount(calcTotal(order));
-      setPayMethod("CASH");
+      setPayMode("CONFIRM");
+
+      // reset redeem UI
+      setUseRedeem(false);
+      setRedeemPolicy(null);
+
+      // load customer + policy
+      let c: CustomerDTO | null = null;
+      if (order.customerId) c = await fetchCustomer(order.customerId, branchId);
+      if (order.customerId) await fetchRedeemPolicy(order, c?.points ?? null);
+
+      // init payments: 1 dòng CASH = (baseAmount) (chưa trừ redeem vì chưa tick)
+      const initialTarget = calcBaseAmount(order);
+      const first: PaymentRow = { id: uid(), method: "CASH", amountText: String(initialTarget) };
+      setPayRows([first]);
+      setActivePayRowId(first.id);
+      setAutoRowId(first.id);
+
       setPayOpen(true);
       fetchUsersByIds([order.createdById, order.confirmedById]);
       return;
     }
 
     setUpdating(true);
-
-    const toBackendStatus = (s: string) => {
-      const x = String(s || "").toUpperCase();
-      if (x === "SHIPPING") return "SHIPPED";
-      if (x === "CANCEL") return "CANCELLED";
-      return x;
-    };
-
     try {
       await apiWrite.patch(`/orders/${order._id}/status`, { status: toBackendStatus(to) });
       await fetchOrders(branchId);
       setSelected((prev) => (prev && prev._id === order._id ? { ...prev, status: to } : prev));
     } catch (e: any) {
       console.error("PATCH /orders/:id/status error:", e?.response?.data || e?.message);
-      alert(e?.response?.data?.message || "Không cập nhật được trạng thái");
+      error(e?.response?.data?.message || "Không cập nhật được trạng thái");
     } finally {
       setUpdating(false);
     }
@@ -480,18 +777,116 @@ const OrdersSection: React.FC = () => {
   const confirmWithPayment = async () => {
     if (!selected?._id) return;
 
+    const rows = Array.isArray(payRows) ? payRows : [];
+    const payments = rows
+      .map((r) => ({
+        method: normMethod(r.method),
+        amount: Math.round(clamp0(toNumberSafe(r.amountText))),
+      }))
+      .filter((x) => x.amount > 0);
+
+    if (!payments.length) {
+      error("Cần nhập ít nhất 1 khoản thanh toán.");
+      return;
+    }
+
+    // targetTotal = base - redeem (nếu tick)
+    const base = calcBaseAmount(selected);
+    const redeemAmt = useRedeem && redeemPolicy?.enabled ? redeemPolicy.redeemAmount : 0;
+    const target = Math.max(0, Math.round(base - redeemAmt));
+    const sum = payments.reduce((s, p) => s + p.amount, 0);
+
+    // POS backend bắt buộc sum(payments) == order.total khi confirm
+    if (sum !== target) {
+      error(`Tổng thanh toán phải đúng ${money(target)}đ. Hiện tại: ${money(sum)}đ`);
+      return;
+    }
+
     setPaying(true);
     try {
-      await apiWrite.post(`/orders/${selected._id}/confirm`, {
-        payment: { method: payMethod, amount: Number(payAmount || 0) },
-      });
+      const payload: any = { payments };
+
+      // ✅ gửi redeem dạng mới (server vẫn tự tính lại)
+      if (useRedeem && redeemPolicy && redeemPolicy.enabled) {
+        payload.pointsRedeemed = redeemPolicy.maxPoints;
+        payload.pointsRedeemAmount = redeemPolicy.redeemAmount;
+      }
+
+      await apiWrite.post(`/orders/${selected._id}/confirm`, payload);
 
       setPayOpen(false);
       await fetchOrders(branchId);
-      setSelected((prev) => (prev ? { ...prev, status: "CONFIRM" } : prev));
+
+      // giữ detail không mất: cập nhật selected sơ bộ, nhưng openDetail sẽ show theo orders mới nếu mở lại
+      setSelected((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "CONFIRM",
+            }
+          : prev
+      );
+
+      success("✅ Đã xác nhận & thanh toán đơn hàng!");
     } catch (e: any) {
       console.error("POST /orders/:id/confirm error:", e?.response?.data || e?.message);
-      alert(e?.response?.data?.message || "Không xác nhận thanh toán được");
+      error(e?.response?.data?.message || "Không xác nhận thanh toán được");
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const openPayDebt = (order: OrderRow) => {
+    setSelected(order);
+    setPayMode("DEBT");
+    setUseRedeem(false);
+    setRedeemPolicy(null);
+
+    const due = calcDue(order);
+    const first: PaymentRow = { id: uid(), method: "CASH", amountText: String(due) };
+    setPayRows([first]);
+    setActivePayRowId(first.id);
+    setAutoRowId(first.id);
+
+    setPayOpen(true);
+  };
+
+  const payDebt = async () => {
+    if (!selected?._id) return;
+
+    const rows = Array.isArray(payRows) ? payRows : [];
+    const payments = rows
+      .map((r) => ({
+        method: normMethod(r.method),
+        amount: Math.round(clamp0(toNumberSafe(r.amountText))),
+      }))
+      .filter((x) => x.amount > 0);
+
+    if (!payments.length) {
+      error("Cần nhập ít nhất 1 khoản thanh toán.");
+      return;
+    }
+
+    const totalPaying = payments.reduce((s, p) => s + p.amount, 0);
+    const due = calcDue(selected);
+
+    if (totalPaying > due) {
+      error(`Số tiền vượt quá còn thiếu (${money(due)}đ)`);
+      return;
+    }
+
+    setPaying(true);
+    try {
+      await apiWrite.post(`/orders/${selected._id}/payments`, { payments });
+
+      setPayOpen(false);
+      await fetchOrders(branchId);
+
+      if (totalPaying === due) success("✅ Đã trả đủ nợ. Đơn chuyển sang CONFIRM.");
+      else success(`💰 Đã trả ${money(totalPaying)}đ. Còn thiếu ${money(due - totalPaying)}đ.`);
+    } catch (e: any) {
+      console.error("Pay debt error:", e?.response?.data || e?.message);
+      error(e?.response?.data?.message || "Không trả nợ được");
     } finally {
       setPaying(false);
     }
@@ -525,105 +920,36 @@ const OrdersSection: React.FC = () => {
     }
   }, [detailOpen, payOpen]);
 
-  const PaginationControls = () => {
-    const pages: (number | string)[] = [];
-    const maxVisible = 5;
+  // ===== computed totals for pay modal =====
+  const debtTotal = selected ? calcDue(selected) : 0;
 
-    if (totalPages <= maxVisible + 2) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      
-      if (currentPage <= 3) {
-        for (let i = 2; i <= Math.min(maxVisible, totalPages - 1); i++) pages.push(i);
-        pages.push("...");
-      } else if (currentPage >= totalPages - 2) {
-        pages.push("...");
-        for (let i = Math.max(2, totalPages - maxVisible + 1); i < totalPages; i++) pages.push(i);
-      } else {
-        pages.push("...");
-        for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
-        pages.push("...");
-      }
-      
-      pages.push(totalPages);
-    }
+  const confirmBase = selected ? calcBaseAmount(selected) : 0;
+  const redeemAmount = useRedeem && redeemPolicy?.enabled ? redeemPolicy.redeemAmount : 0;
+  const confirmTarget = Math.max(0, confirmBase - redeemAmount);
 
-    return (
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-gray-50 border-t">
-        <div className="text-sm text-gray-600">
-          Hiển thị <b>{startIndex + 1}</b> - <b>{endIndex}</b> trong tổng số <b>{totalItems}</b> đơn
-        </div>
+  const targetTotal = payMode === "DEBT" ? debtTotal : confirmTarget;
 
-        <div className="flex items-center gap-2">
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              setPage(1);
-            }}
-            className="px-2 py-1 border border-gray-300 rounded text-sm outline-none focus:ring-2 focus:ring-pink-500"
-          >
-            <option value={10}>10/trang</option>
-            <option value={20}>20/trang</option>
-            <option value={50}>50/trang</option>
-            <option value={100}>100/trang</option>
-          </select>
+  // keep paidSum display
+  const paidSum = useMemo(() => payRows.reduce((s, r) => s + toAmountInt(r.amountText), 0), [payRows]);
 
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="p-2 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Trang trước"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+  // when toggle redeem -> rebalance immediately (mượt + không giật)
+  useEffect(() => {
+    if (!payOpen) return;
+    if (payMode !== "CONFIRM") return;
 
-          <div className="flex items-center gap-1">
-            {pages.map((p, idx) => {
-              if (p === "...") {
-                return (
-                  <span key={`dot-${idx}`} className="px-2 text-gray-500">
-                    ...
-                  </span>
-                );
-              }
-
-              const pageNum = p as number;
-              const isActive = pageNum === currentPage;
-
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setPage(pageNum)}
-                  className={`min-w-[36px] px-3 py-1 rounded text-sm font-semibold transition-colors ${
-                    isActive
-                      ? "bg-pink-500 text-white"
-                      : "bg-white border border-gray-300 hover:bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-          </div>
-
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="p-2 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Trang sau"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  };
+    setPayRows((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      const autoId = autoRowIdRef.current || (rows.length ? rows[rows.length - 1].id : "");
+      return rebalanceRows(rows, confirmTarget, autoId || (rows[0]?.id ?? ""));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useRedeem, redeemPolicy?.redeemAmount, payOpen, payMode]);
 
   return (
     <div className="space-y-4">
-      {/* Header + Branch Filter */}
+      {contextHolder}
+
+      {/* Header + Actions */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-gray-800">Quản lý đơn hàng</h2>
@@ -633,6 +959,22 @@ const OrdersSection: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          {!isStaff && (
+            <select
+              value={branchId}
+              onChange={(e) => onChangeBranch(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-semibold outline-none focus:ring-2 focus:ring-pink-500"
+              title="Chọn cửa hàng"
+            >
+              <option value="all">Tất cả cửa hàng</option>
+              {branches.map((b) => (
+                <option key={b._id} value={b._id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          )}
+
           <button
             type="button"
             onClick={() => fetchOrders(branchId)}
@@ -725,28 +1067,20 @@ const OrdersSection: React.FC = () => {
                       </td>
 
                       <td className="px-4 py-3 text-center">
-                        <span className="px-2 py-1 bg-pink-50 text-pink-700 rounded text-xs font-semibold">
-                          {qty}
-                        </span>
+                        <span className="px-2 py-1 bg-pink-50 text-pink-700 rounded text-xs font-semibold">{qty}</span>
                       </td>
 
                       <td className="px-4 py-3 text-right font-bold text-gray-800">{money(total)}đ</td>
 
                       <td className="px-4 py-3">
                         <div className="flex justify-center">
-                          <span className={`px-2 py-1 rounded text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
-                            {cfg.label}
-                          </span>
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${cfg.bg} ${cfg.text}`}>{cfg.label}</span>
                         </div>
                       </td>
 
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
-                          <button
-                            className="p-2 rounded hover:bg-blue-50 text-blue-700"
-                            onClick={() => openDetail(o)}
-                            title="Xem"
-                          >
+                          <button className="p-2 rounded hover:bg-blue-50 text-blue-700" onClick={() => openDetail(o)} title="Xem">
                             <Eye className="w-4 h-4" />
                           </button>
 
@@ -825,43 +1159,131 @@ const OrdersSection: React.FC = () => {
           {!loading && paginatedData.length === 0 && <div className="p-6 text-center text-gray-500">Không có đơn.</div>}
         </div>
 
-        {!loading && totalItems > 0 && <PaginationControls />}
+        {!loading && totalItems > 0 && (
+          <div className="border-t">
+            {(() => {
+              const pages: (number | string)[] = [];
+              const maxVisible = 5;
+
+              if (totalPages <= maxVisible + 2) {
+                for (let i = 1; i <= totalPages; i++) pages.push(i);
+              } else {
+                pages.push(1);
+                if (currentPage <= 3) {
+                  for (let i = 2; i <= Math.min(maxVisible, totalPages - 1); i++) pages.push(i);
+                  pages.push("...");
+                } else if (currentPage >= totalPages - 2) {
+                  pages.push("...");
+                  for (let i = Math.max(2, totalPages - maxVisible + 1); i < totalPages; i++) pages.push(i);
+                } else {
+                  pages.push("...");
+                  for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
+                  pages.push("...");
+                }
+                pages.push(totalPages);
+              }
+
+              return (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-gray-50">
+                  <div className="text-sm text-gray-600">
+                    Hiển thị <b>{startIndex + 1}</b> - <b>{endIndex}</b> trong tổng số <b>{totalItems}</b> đơn
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setPage(1);
+                      }}
+                      className="px-2 py-1 border border-gray-300 rounded text-sm outline-none focus:ring-2 focus:ring-pink-500"
+                    >
+                      <option value={10}>10/trang</option>
+                      <option value={20}>20/trang</option>
+                      <option value={50}>50/trang</option>
+                      <option value={100}>100/trang</option>
+                    </select>
+
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="p-2 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Trang trước"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <div className="flex items-center gap-1">
+                      {pages.map((p, idx) => {
+                        if (p === "...") return <span key={`dot-${idx}`} className="px-2 text-gray-500">...</span>;
+                        const pageNum = p as number;
+                        const isActive = pageNum === currentPage;
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setPage(pageNum)}
+                            className={`min-w-[36px] px-3 py-1 rounded text-sm font-semibold transition-colors ${
+                              isActive ? "bg-pink-500 text-white" : "bg-white border border-gray-300 hover:bg-gray-100 text-gray-700"
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="p-2 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Trang sau"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Detail Modal */}
       {detailOpen && selected && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            {/* Header */}
-           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
-  {/* Left: Title */}
-  <div className="min-w-0 flex-1">
-    <div className="font-bold text-gray-800 truncate">Chi tiết đơn: {selected.code}</div>
-    <div className="text-xs text-gray-500">#{selected._id}</div>
-  </div>
+          <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-gray-800 truncate">Chi tiết đơn: {selected.code}</div>
+                <div className="text-xs text-gray-500">#{selected._id}</div>
+              </div>
 
-  {/* Right: Actions */}
-  <div className="flex items-center gap-2 flex-shrink-0">
-    {/* Print button */}
-    <button
-      onClick={() => printBill(selected._id)}
-      className="px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-semibold flex items-center gap-2 transition-colors"
-      title="In hoá đơn 80mm"
-    >
-      <Printer className="w-4 h-4" />
-      <span className="hidden sm:inline">In Bill</span>
-    </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {isDebtOrder(selected) && (
+                  <button
+                    onClick={() => openPayDebt(selected)}
+                    className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold flex items-center gap-2 transition-colors"
+                    title="Trả nợ"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span className="hidden sm:inline">Trả nợ</span>
+                  </button>
+                )}
 
-    {/* Close button */}
-    <button 
-      onClick={() => { setDetailOpen(false); setSelected(null); }} 
-      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-      title="Đóng"
-    >
-      <X className="w-5 h-5 text-gray-600" />
-    </button>
-  </div>
-</div>
+                <button
+                  onClick={() => printBill(selected._id)}
+                  className="px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-semibold flex items-center gap-2 transition-colors"
+                  title="In hoá đơn 80mm"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span className="hidden sm:inline">In Bill</span>
+                </button>
+
+                <button onClick={closeDetail} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Đóng">
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
+            </div>
 
             <div className="p-4 space-y-4 overflow-y-auto">
               {/* Summary */}
@@ -900,9 +1322,141 @@ const OrdersSection: React.FC = () => {
                       </span>
                     );
                   })()}
-                  <div className="text-xs text-gray-500 mt-2">
-                    Confirmed: {selected.confirmedAt ? fmtDateTime(selected.confirmedAt) : "—"}
+                  <div className="text-xs text-gray-500 mt-2">Confirmed: {selected.confirmedAt ? fmtDateTime(selected.confirmedAt) : "—"}</div>
+                </div>
+              </div>
+
+              {/* Loyalty Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-xs text-green-600 mb-2">
+                    <TrendingUp className="w-4 h-4" />
+                    <span className="font-semibold">Điểm Tích Lũy</span>
                   </div>
+
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold text-green-700">
+                      {selected.pointsEarned ? `+${money(selected.pointsEarned)}` : "0"}
+                    </span>
+                    <span className="text-xs text-green-600">điểm</span>
+                  </div>
+
+                  <div className="mt-2 space-y-1 text-xs text-gray-600">
+                    {selected.pointsAppliedAt ? (
+                      <div className="flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-green-600" />
+                        <span>Đã cộng: {fmtDateTime(selected.pointsAppliedAt)}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-gray-400">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Chưa áp dụng</span>
+                      </div>
+                    )}
+
+                    {selected.pointsRevertedAt && (
+                      <div className="flex items-center gap-1 text-red-600">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Đã hoàn: {fmtDateTime(selected.pointsRevertedAt)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-xs text-purple-600 mb-2">
+                    <Gift className="w-4 h-4" />
+                    <span className="font-semibold">Điểm Đã Dùng</span>
+                  </div>
+
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold text-purple-700">
+                      {selected.pointsRedeemed ? `-${money(selected.pointsRedeemed)}` : "0"}
+                    </span>
+                    <span className="text-xs text-purple-600">điểm</span>
+                  </div>
+
+                  {selected.pointsRedeemAmount && selected.pointsRedeemAmount > 0 ? (
+                    <div className="mt-2 space-y-1 text-xs">
+                      <div className="text-purple-700 font-semibold">Giảm: {money(selected.pointsRedeemAmount)}đ</div>
+
+                      {selected.pointsRedeemedAt ? (
+                        <div className="flex items-center gap-1 text-gray-600">
+                          <CheckCircle2 className="w-3 h-3 text-purple-600" />
+                          <span>Đã trừ: {fmtDateTime(selected.pointsRedeemedAt)}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-gray-400">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Chưa trừ điểm</span>
+                        </div>
+                      )}
+
+                      {selected.pointsRedeemRevertedAt && (
+                        <div className="flex items-center gap-1 text-red-600">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Đã hoàn: {fmtDateTime(selected.pointsRedeemRevertedAt)}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-gray-400">Không dùng điểm</div>
+                  )}
+                </div>
+
+                <div
+                  className={`rounded-lg p-3 border ${
+                    String(selected.status).toUpperCase() === "DEBT"
+                      ? "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200"
+                      : "bg-gray-50 border-gray-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs mb-2">
+                    <CreditCard
+                      className={`w-4 h-4 ${
+                        String(selected.status).toUpperCase() === "DEBT" ? "text-amber-600" : "text-gray-500"
+                      }`}
+                    />
+                    <span
+                      className={`font-semibold ${
+                        String(selected.status).toUpperCase() === "DEBT" ? "text-amber-600" : "text-gray-600"
+                      }`}
+                    >
+                      Công Nợ
+                    </span>
+                  </div>
+
+                  {(() => {
+                    const due = calcDue(selected);
+                    const debtAmt = Number(selected.debtAmount || 0);
+
+                    return (
+                      <div>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-2xl font-bold ${due > 0 ? "text-red-600" : "text-gray-700"}`}>
+                            {money(due)}đ
+                          </span>
+                        </div>
+
+                        <div className="mt-2 text-xs text-gray-600">
+                          {debtAmt > 0 && (
+                            <div>
+                              Nợ ban đầu: <b className="text-amber-700">{money(debtAmt)}đ</b>
+                            </div>
+                          )}
+
+                          {due > 0 ? (
+                            <div className="text-red-600 font-semibold mt-1">Còn thiếu: {money(due)}đ</div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-green-600 mt-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Đã thanh toán đủ</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -926,17 +1480,44 @@ const OrdersSection: React.FC = () => {
                     </div>
 
                     <div className="flex justify-between gap-3">
-                      <span className="text-gray-500">CustomerId</span>
-                      <span className="font-mono text-xs text-right">{selected.customerId || "—"}</span>
+                      <span className="text-gray-500">Điểm hiện có</span>
+                      <div className="text-right">
+                        {customerLoading ? (
+                          <span className="text-xs text-gray-400">Đang tải...</span>
+                        ) : (
+                          <span className="font-semibold text-green-700">{customer?.points != null ? `${money(customer.points)} điểm` : "—"}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between gap-3">
+                      <span className="text-gray-500">Tier</span>
+                      <div className="text-right">
+                        {customerLoading ? (
+                          <span className="text-xs text-gray-400">Đang tải...</span>
+                        ) : (
+                          <span className="font-semibold">
+                            {customer?.tier?.code || "—"}
+                            {customer?.tier?.permanent ? " • Permanent" : ""}
+                            {customer?.tier?.locked ? " • Locked" : ""}
+                          </span>
+                        )}
+                        {!customerLoading && customer?.tier?.expiresAt ? (
+                          <div className="text-xs text-gray-500">Hết hạn: {fmtDateTime(customer.tier.expiresAt)}</div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between gap-3">
+                      <span className="text-gray-500">Chi tiêu xét hạng</span>
+                      <span className="font-semibold text-right">{customer?.tierProgress?.spendForTier != null ? `${money(customer.tierProgress.spendForTier)}đ` : "—"}</span>
                     </div>
 
                     <div className="flex justify-between gap-3">
                       <span className="text-gray-500">Người Tạo</span>
                       <div className="text-right">
                         <div className="font-semibold">
-                          {usersLoading && isObjectId(selected.createdById) && !userById.has(String(selected.createdById))
-                            ? "Đang tải..."
-                            : userLabel(selected.createdById)}
+                          {usersLoading && isObjectId(selected.createdById) && !userById.has(String(selected.createdById)) ? "Đang tải..." : userLabel(selected.createdById)}
                         </div>
                       </div>
                     </div>
@@ -945,9 +1526,7 @@ const OrdersSection: React.FC = () => {
                       <span className="text-gray-500">Người Xác Nhận</span>
                       <div className="text-right">
                         <div className="font-semibold">
-                          {usersLoading && isObjectId(selected.confirmedById) && !userById.has(String(selected.confirmedById))
-                            ? "Đang tải..."
-                            : userLabel(selected.confirmedById)}
+                          {usersLoading && isObjectId(selected.confirmedById) && !userById.has(String(selected.confirmedById)) ? "Đang tải..." : userLabel(selected.confirmedById)}
                         </div>
                       </div>
                     </div>
@@ -988,11 +1567,15 @@ const OrdersSection: React.FC = () => {
 
               {/* Payments + Totals */}
               {(() => {
-                const subtotal = calcSubtotal(selected);
-                const discount = calcDiscount(selected);
+                const base = calcBaseAmount(selected);
+                const redeemAmt = calcRedeemAmount(selected);
                 const total = calcTotal(selected);
                 const paid = sumPaid(selected.payments);
-                const due = Math.max(0, total - paid);
+                const due = calcDue(selected);
+                const discount = calcDiscount(selected);
+                const extraFee = calcExtraFee(selected);
+                const pricingNote = selected.pricingNote || "";
+                const subtotal = calcSubtotal(selected);
 
                 return (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1008,27 +1591,27 @@ const OrdersSection: React.FC = () => {
                       </div>
                       <div className="flex items-center justify-between text-sm mt-1">
                         <span className="text-gray-500">Còn thiếu</span>
-                        <span className={`font-bold ${due > 0 ? "text-red-600" : "text-gray-800"}`}>
-                          {money(due)}đ
-                        </span>
+                        <span className={`font-bold ${due > 0 ? "text-red-600" : "text-gray-800"}`}>{money(due)}đ</span>
                       </div>
 
                       <div className="mt-3 border-t pt-3">
-                        <div className="text-xs text-gray-500 mb-2">Danh sách payments</div>
+                        <div className="text-xs font-semibold text-gray-600 mb-2">Danh sách payments</div>
+
                         {selected.payments && selected.payments.length > 0 ? (
                           <div className="space-y-2">
                             {selected.payments.map((p, idx) => (
-                              <div
-                                key={idx}
-                                className="flex items-center justify-between text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2"
-                              >
-                                <span className="font-semibold text-gray-700">{payMethodLabel(p.method)}</span>
-                                <span className="font-bold text-gray-900">{money(p.amount)}đ</span>
+                              <div key={idx} className="flex items-center justify-between text-sm bg-white border border-gray-200 rounded-lg px-3 py-2">
+                                <div className="flex flex-col">
+                                  <span className="font-semibold text-gray-800">{payMethodLabel(p.method)}</span>
+                                  <span className="text-xs text-gray-400">Payment #{idx + 1}</span>
+                                </div>
+
+                                <span className="font-extrabold text-gray-900">{money(p.amount)}đ</span>
                               </div>
                             ))}
                           </div>
                         ) : (
-                          <div className="text-sm text-gray-500">Chưa có thanh toán.</div>
+                          <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">Chưa có thanh toán.</div>
                         )}
                       </div>
                     </div>
@@ -1044,14 +1627,38 @@ const OrdersSection: React.FC = () => {
 
                         <div className="flex items-center justify-between">
                           <span className="text-gray-500">Giảm giá</span>
-                          <span className={`font-semibold ${discount > 0 ? "text-red-600" : ""}`}>
-                            -{money(discount)}đ
-                          </span>
+                          <span className={`font-semibold ${discount > 0 ? "text-red-600" : ""}`}>-{money(discount)}đ</span>
                         </div>
+
+                        {redeemAmt > 0 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500 flex items-center gap-1">
+                              <Gift className="w-3 h-3" />
+                              Trừ điểm
+                            </span>
+                            <span className="font-semibold text-purple-600">-{money(redeemAmt)}đ</span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-500">Cộng thêm</span>
+                          <span className={`font-semibold ${extraFee > 0 ? "text-green-700" : ""}`}>+{money(extraFee)}đ</span>
+                        </div>
+
+                        {pricingNote && (
+                          <div className="flex items-start justify-between gap-2 text-xs text-gray-600">
+                            <span className="text-gray-500 whitespace-nowrap">Ghi chú phí</span>
+                            <span className="text-right italic text-gray-700 break-words">{pricingNote}</span>
+                          </div>
+                        )}
 
                         <div className="border-t pt-2 flex items-center justify-between">
                           <span className="text-gray-700 font-bold">Tổng cộng</span>
                           <span className="text-gray-900 font-extrabold text-lg">{money(total)}đ</span>
+                        </div>
+
+                        <div className="text-xs text-gray-500">
+                          Base (subtotal - discount + extraFee): <b>{money(base)}đ</b>
                         </div>
                       </div>
                     </div>
@@ -1061,9 +1668,7 @@ const OrdersSection: React.FC = () => {
 
               {/* Items */}
               <div className="border rounded-lg overflow-hidden">
-                <div className="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-700">
-                  Sản phẩm ({sumQty(selected.items)} món)
-                </div>
+                <div className="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-700">Sản phẩm ({sumQty(selected.items)} món)</div>
                 <div className="max-h-72 overflow-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-white sticky top-0">
@@ -1076,8 +1681,7 @@ const OrdersSection: React.FC = () => {
                     </thead>
                     <tbody className="divide-y">
                       {selected.items.map((it, idx) => {
-                        const lineTotal =
-                          it.total != null ? Number(it.total || 0) : Number(it.price || 0) * Number(it.qty || 0);
+                        const lineTotal = it.total != null ? Number(it.total || 0) : Number(it.price || 0) * Number(it.qty || 0);
                         return (
                           <tr key={it.productId || idx}>
                             <td className="px-3 py-2">
@@ -1097,12 +1701,28 @@ const OrdersSection: React.FC = () => {
                 </div>
               </div>
 
-              {/* ✅ Actions - Thêm nút In bill */}
-              <div className="space-y-2">
-                {/* Nút In bill (luôn hiển thị) */}
-                
+              {/* Stock Allocations */}
+              {selected.stockAllocations && selected.stockAllocations.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-700">Phân bổ kho</div>
+                  <div className="p-3">
+                    <div className="space-y-2">
+                      {selected.stockAllocations.map((sa, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm bg-white border border-gray-200 rounded-lg px-3 py-2">
+                          <div>
+                            <div className="font-semibold text-gray-800">{branchName(sa.branchId)}</div>
+                            <div className="text-xs text-gray-500">Product: {sa.productId}</div>
+                          </div>
+                          <span className="font-bold text-gray-900">{sa.qty} SP</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                {/* Actions theo status */}
+              {/* Actions */}
+              <div className="space-y-2">
                 {String(selected.status).toUpperCase() === "PENDING" ? (
                   <div className="flex gap-2">
                     <button
@@ -1137,67 +1757,231 @@ const OrdersSection: React.FC = () => {
       {/* Payment Modal */}
       {payOpen && selected && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b">
-              <div className="font-bold text-gray-800">Thanh toán & xác nhận đơn</div>
+              <div className="font-bold text-gray-800">{payMode === "CONFIRM" ? "Thanh toán & xác nhận đơn" : "Trả nợ đơn hàng"}</div>
               <button onClick={() => setPayOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5 text-gray-600" />
               </button>
             </div>
 
             <div className="p-4 space-y-4 overflow-y-auto">
+              {/* Summary */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <div className="text-xs text-gray-500">Đơn</div>
                 <div className="font-semibold text-gray-800">{selected.code}</div>
                 <div className="text-xs text-gray-500 mt-1">
-                  Tổng: <b>{money(calcTotal(selected))}đ</b>
+                  Base: <b>{money(confirmBase)}đ</b>
+                  {payMode === "DEBT" && (
+                    <>
+                      {" "}
+                      • Còn thiếu: <b className="text-red-600">{money(calcDue(selected))}đ</b>
+                    </>
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setPayMethod("CASH")}
-                  className={`px-3 py-2 rounded-lg border text-sm font-bold flex items-center justify-center gap-2 ${
-                    payMethod === "CASH"
-                      ? "bg-pink-500 text-white border-pink-500"
-                      : "bg-white hover:bg-gray-50 border-gray-200"
-                  }`}
-                >
-                  <Banknote className="w-4 h-4" />
-                  Tiền mặt
-                </button>
+              {/* Redeem Section */}
+              {payMode === "CONFIRM" && (
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Gift className="w-4 h-4 text-purple-600" />
+                      <span className="font-bold text-purple-900">Sử dụng điểm</span>
+                    </div>
 
-                <button
-                  onClick={() => setPayMethod("BANK")}
-                  className={`px-3 py-2 rounded-lg border text-sm font-bold flex items-center justify-center gap-2 ${
-                    payMethod === "BANK"
-                      ? "bg-pink-500 text-white border-pink-500"
-                      : "bg-white hover:bg-gray-50 border-gray-200"
-                  }`}
-                >
-                  <CreditCard className="w-4 h-4" />
-                  Chuyển khoản
-                </button>
+                    {redeemLoading && <div className="text-xs text-purple-600">Đang tải...</div>}
+                  </div>
+
+                  {redeemPolicy && redeemPolicy.enabled ? (
+                    <div className="space-y-2">
+                      <Checkbox checked={useRedeem} onChange={(e) => setUseRedeem(e.target.checked)} className="text-sm">
+                        <span className="text-purple-900 font-semibold">
+                          Dùng {money(redeemPolicy.maxPoints)} điểm = Giảm {money(redeemPolicy.redeemAmount)}đ
+                        </span>
+                      </Checkbox>
+
+                      {customer && (
+                        <div className="text-xs text-gray-600 pl-6">
+                          Khách có: <b className="text-green-700">{money(customer.points || 0)} điểm</b>
+                        </div>
+                      )}
+
+                      {useRedeem && (
+                        <div className="mt-2 pt-2 border-t border-purple-200">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-purple-700">Base</span>
+                            <span className="font-semibold">{money(confirmBase)}đ</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-purple-700">Trừ điểm</span>
+                            <span className="font-semibold text-purple-600">-{money(redeemAmount)}đ</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm font-bold border-t border-purple-200 pt-1 mt-1">
+                            <span className="text-purple-900">Cần thanh toán</span>
+                            <span className="text-purple-900">{money(confirmTarget)}đ</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">{redeemLoading ? "Đang kiểm tra..." : "Không đủ điều kiện sử dụng điểm"}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Payment Rows */}
+              <div className="bg-white border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="font-bold text-gray-900 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4" />
+                    Hình thức thanh toán
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => addPayMethodRow(targetTotal)}
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-pink-50 text-pink-600 hover:bg-pink-100 text-sm font-bold"
+                    title="Thêm hình thức"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Thêm
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {payRows.map((r) => {
+                    const isActive = r.id === activePayRowId;
+                    const amountNum = toAmountInt(r.amountText);
+                    const isAuto = r.id === autoRowId;
+
+                    return (
+                      <div
+                        key={r.id}
+                        className={`rounded-lg border p-2 transition-colors ${
+                          isActive ? "border-pink-300 bg-pink-50" : "border-gray-200 bg-white"
+                        }`}
+                        onClick={() => setActivePayRowId(r.id)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {(METHODS as PaymentMethodUI[]).map((m) => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  updatePayRow(r.id, { method: m }, targetTotal);
+                                  setActivePayRowId(r.id);
+                                }}
+                                className={`px-2 py-1 rounded-lg text-xs font-bold border transition-colors flex items-center gap-1 ${
+                                  normMethod(r.method) === m ? "bg-pink-500 text-white border-pink-500" : "bg-white border-gray-200 hover:bg-gray-50"
+                                }`}
+                              >
+                                {m === "CASH" && <Banknote className="w-3 h-3" />}
+                                {m === "BANK" && <CreditCard className="w-3 h-3" />}
+                                {m === "CARD" && <CreditCard className="w-3 h-3" />}
+                                {m === "WALLET" && <Wallet className="w-3 h-3" />}
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+
+                          {payRows.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removePayRow(r.id, targetTotal);
+                              }}
+                              className="p-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50"
+                              title="Xoá hình thức"
+                            >
+                              <X className="w-4 h-4 text-gray-600" />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-gray-700 mb-2 flex items-center justify-between">
+                          <div>
+                            Số tiền: <b>{money(amountNum)}đ</b>
+                            {isAuto && <span className="ml-2 text-[11px] text-pink-600 font-bold">(Auto)</span>}
+                          </div>
+                          {isAuto && <div className="text-[11px] text-gray-500">nhận phần còn lại</div>}
+                        </div>
+
+                        {isActive && (
+                          <input
+                            value={r.amountText}
+                            onChange={(e) => updatePayRow(r.id, { amountText: e.target.value }, targetTotal)}
+                            inputMode="numeric"
+                            placeholder="Nhập số tiền"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Total Summary */}
+                <div className="mt-3 pt-3 border-t space-y-1 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Tổng đã nhập</span>
+                    <span className="font-bold text-gray-900">{money(paidSum)}đ</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-600">{payMode === "DEBT" ? "Còn thiếu" : "Cần thanh toán"}</span>
+                    <span className={`font-bold ${Math.max(0, targetTotal - paidSum) > 0 ? "text-red-600" : "text-green-600"}`}>
+                      {money(Math.max(0, targetTotal - paidSum))}đ
+                    </span>
+                  </div>
+
+                  {paidSum === targetTotal && (
+                    <div className="flex items-center gap-1 text-green-600 text-xs">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>{payMode === "DEBT" ? "Trả đủ → Đơn sẽ chuyển CONFIRM" : "Hợp lệ → Có thể xác nhận"}</span>
+                    </div>
+                  )}
+
+                  {paidSum !== targetTotal && payMode === "CONFIRM" && (
+                    <div className="flex items-center gap-1 text-amber-600 text-xs">
+                      <AlertCircle className="w-3 h-3" />
+                      <span>POS yêu cầu tổng thanh toán phải đúng bằng số cần thanh toán.</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <label className="text-sm font-semibold text-gray-700">Số tiền</label>
-                <input
-                  type="number"
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(Number(e.target.value || 0))}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                />
-                <div className="text-xs text-gray-500 mt-1">Gợi ý: {money(calcTotal(selected))}đ</div>
-              </div>
-
+              {/* Submit Button */}
               <button
-                onClick={confirmWithPayment}
+                onClick={payMode === "CONFIRM" ? confirmWithPayment : payDebt}
                 disabled={paying}
-                className="w-full bg-pink-500 hover:bg-pink-600 text-white py-3 rounded-lg font-extrabold disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="w-full bg-pink-500 hover:bg-pink-600 text-white py-3 rounded-lg font-extrabold disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
-                {paying ? "Đang xử lý..." : "THANH TOÁN"}
+                {paying ? "Đang xử lý..." : payMode === "CONFIRM" ? "XÁC NHẬN THANH TOÁN" : "TRẢ NỢ"}
               </button>
+
+              <div className="text-xs text-gray-500">
+                {payMode === "DEBT" ? (
+                  <>
+                    * <b>Trả đủ</b> (= {money(targetTotal)}đ): Đơn chuyển CONFIRM
+                    <br />* <b>Trả thiếu</b> (&lt; {money(targetTotal)}đ): Đơn vẫn DEBT, lưu thanh toán
+                  </>
+                ) : (
+                  <>
+                    * Xác nhận thanh toán PENDING → CONFIRM
+                    {useRedeem && redeemPolicy?.enabled && (
+                      <>
+                        <br />* Sử dụng {money(redeemPolicy.maxPoints)} điểm để giảm {money(redeemPolicy.redeemAmount)}đ
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -1,3 +1,4 @@
+// src/App.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { message } from "antd";
@@ -9,7 +10,7 @@ import OrdersSection from "./components/Orders/OrdersSection";
 import ProductInputSection from "./components/Products/ProductInputSection";
 import InventorySection from "./components/Inventory/InventorySection";
 import WarehouseSection from "./components/Warehouse/WarehouseSection";
-import StaffSection from "./components/Staff/StaffSection";
+import CustomersSection from "./components/Customers/CustomersSection";
 import RevenueSection from "./components/Revenue/RevenueSection";
 import ProtectedRoute from "./components/Auth/ProtectedRoute";
 import ShopSettings from "./components/ShopSettings/ShopSettings";
@@ -71,7 +72,9 @@ interface Branch {
   code?: string;
 }
 
+// ===============================
 // Helpers
+// ===============================
 function upperRole(user: any) {
   return String(user?.role || "").toUpperCase();
 }
@@ -91,6 +94,17 @@ function mustSelectSingleBranchForPOS(user: any, posBranchId: string) {
   if (role === "STAFF") return false;
   return !posBranchId || posBranchId === "all";
 }
+
+const clamp0 = (n: any) => {
+  const x = Number(n || 0);
+  return Number.isFinite(x) && x > 0 ? x : 0;
+};
+
+const moneyInt = (n: any) => {
+  const x = Number(n || 0);
+  if (!Number.isFinite(x)) return 0;
+  return Math.round(x);
+};
 
 // ===============================
 // App Inner
@@ -237,7 +251,7 @@ const AppInner: React.FC = () => {
     }
   }, [isLoggedIn, location.pathname, navigate]);
 
-  // Stock deduction display
+  // Stock deduction display (UI only) - show tồn “sau khi trừ trong giỏ”
   const currentOrder = useMemo(() => activeOrders.find((o) => o.id === currentOrderId), [activeOrders, currentOrderId]);
 
   const reservedMap = useMemo(() => {
@@ -250,7 +264,7 @@ const AppInner: React.FC = () => {
   const productsForPOS = useMemo(() => {
     return productsRaw.map((p) => {
       const reserved = reservedMap.get(p._id) || 0;
-      return { ...p, stock: Math.max(0, Number(p.stock || 0) - reserved) };
+      return { ...p, stock: Number(p.stock || 0) - reserved };
     });
   }, [productsRaw, reservedMap]);
 
@@ -283,66 +297,47 @@ const AppInner: React.FC = () => {
     }
   };
 
-const addToCart = (product: Product): void => {
-  const order = getCurrentOrderFn();
-  if (!order) return;
+  const addToCart = (product: Product): void => {
+    const order = getCurrentOrderFn();
+    if (!order) return;
 
-  // ✅ Cho phép bán dù stock <= 0 (kho âm)
-  // const available = Number(product.stock || 0);
-  // if (available <= 0) {
-  //   message.warning("Sản phẩm đã hết hàng.");
-  //   return;
-  // }
+    // ✅ allow negative stock
+    setActiveOrders((prev) =>
+      prev.map((o) => {
+        if (o.id !== currentOrderId) return o;
 
-  setActiveOrders((prev) =>
-    prev.map((o) => {
-      if (o.id !== currentOrderId) return o;
+        const existing = o.items.find((it) => it._id === product._id);
+        if (existing) {
+          return {
+            ...o,
+            items: o.items.map((it) => (it._id === product._id ? { ...it, quantity: Number(it.quantity || 0) + 1 } : it)),
+          };
+        }
 
-      const existing = o.items.find((it) => it._id === product._id);
-      if (existing) {
+        return { ...o, items: [...o.items, { ...product, quantity: 1 }] };
+      })
+    );
+  };
+
+  const updateQuantity = (productId: string, delta: number): void => {
+    setActiveOrders((prev) =>
+      prev.map((o) => {
+        if (o.id !== currentOrderId) return o;
+
         return {
           ...o,
-          items: o.items.map((it) =>
-            it._id === product._id
-              ? { ...it, quantity: Number(it.quantity || 0) + 1 }
-              : it
-          ),
+          items: o.items
+            .map((it) => {
+              if (it._id !== productId) return it;
+              const nextQty = Number(it.quantity || 0) + delta;
+              if (nextQty <= 0) return { ...it, quantity: 0 };
+              return { ...it, quantity: nextQty };
+            })
+            .filter((it) => Number(it.quantity || 0) > 0),
         };
-      }
-
-      // ✅ add mới dù stock = 0 / âm
-      return { ...o, items: [...o.items, { ...product, quantity: 1 }] };
-    })
-  );
-};
-
-const updateQuantity = (productId: string, delta: number): void => {
-  // ✅ Không cần rawStock để cap nữa (vì cho phép âm kho)
-  // const raw = productsRaw.find((p) => p._id === productId);
-  // const rawStock = Number(raw?.stock || 0);
-
-  setActiveOrders((prev) =>
-    prev.map((o) => {
-      if (o.id !== currentOrderId) return o;
-
-      return {
-        ...o,
-        items: o.items
-          .map((it) => {
-            if (it._id !== productId) return it;
-
-            // ✅ chỉ chặn về 0 (không cho qty âm), còn lại cho tăng tự do
-            const nextQty = Number(it.quantity || 0) + delta;
-            if (nextQty <= 0) return { ...it, quantity: 0 };
-
-            return { ...it, quantity: nextQty };
-          })
-          .filter((it) => Number(it.quantity || 0) > 0),
-      };
-    })
-  );
-};
-
+      })
+    );
+  };
 
   const removeFromCart = (productId: string): void => {
     setActiveOrders((prev) =>
@@ -364,18 +359,35 @@ const updateQuantity = (productId: string, delta: number): void => {
     // legacy giữ lại
   };
 
+  /**
+   * ✅ FINAL: create POS order via POST /api/orders
+   * Backend expects:
+   * - channel: "POS"
+   * - status: "PENDING" | "CONFIRM" | "DEBT"
+   * - payments[] (CONFIRM/DEBT) with methods CASH/BANK/CARD/WALLET/COD/PENDING
+   *   * For POS: do NOT use COD/PENDING methods except status=PENDING
+   * - For PENDING: payments must be [] and sum=0
+   * - For CONFIRM: payments required and sum == total
+   * - For DEBT: payments allowed and sum <= total (your UI enforces >0 and < total)
+   */
   const completeOrderWithStatus = async (
-  status: "PENDING" | "CONFIRM",
+  status: "PENDING" | "CONFIRM" | "DEBT",
   payload: {
     branchId: string;
-    customer?: { name?: string; phone?: string; email?: string };
-    delivery: { method: "PICKUP" | "DELIVERY"; address?: string; note?: string };
-    payment: { method: "CASH" | "BANK" | "PENDING"; amount: number };
-    discount?: number;
-    extraFee?: number;
+    customer?: { name?: string; phone?: string; email?: string; dob?: string };
+    delivery: { method: "PICKUP" | "SHIP"; address?: string; note?: string };
+
+    payments?: { method: "CASH" | "BANK" | "CARD" | "WALLET"; amount: number }[];
+
+    discount: number;
+    extraFee: number;
     pricingNote?: string;
+
+    // ✅ redeem (UI gửi points; amount sẽ lấy từ server)
+    pointsRedeemed?: number;
+    pointsRedeemAmount?: number; // (deprecated) UI có gửi cũng ignore
   }
-) => {
+): Promise<{ _id: string }> => {
   const order = getCurrentOrderFn();
   if (!order) throw new Error("NO_CURRENT_ORDER");
   if (!payload.branchId || payload.branchId === "all") throw new Error("POS_BRANCH_REQUIRED");
@@ -383,92 +395,200 @@ const updateQuantity = (productId: string, delta: number): void => {
   const items = order.items.map((it) => ({ productId: it._id, qty: Number(it.quantity || 0) }));
   if (!items.length) throw new Error("EMPTY_CART");
 
-  const key = "pos-create-order";
-  message.loading({ content: "Đang tạo đơn...", key });
+  const moneyInt = (n: any) => {
+    const x = Number(n || 0);
+    if (!Number.isFinite(x)) return 0;
+    return Math.round(x);
+  };
 
-  // 1) CREATE ORDER (backend currently creates PENDING)
-  const res = await api.post("/orders", {
+  const subtotal = moneyInt(order.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0));
+  const discount = moneyInt(payload.discount || 0);
+  const extraFee = moneyInt(payload.extraFee || 0);
+
+  const baseAmount = Math.max(0, subtotal - discount + extraFee);
+
+  const isShip = payload.delivery.method === "SHIP";
+  if (isShip) {
+    const phone = String(payload.customer?.phone || "").trim();
+    const addr = String(payload.delivery.address || "").trim();
+    if (!phone) throw new Error("SHIP_REQUIRES_PHONE");
+    if (!addr) throw new Error("SHIP_REQUIRES_ADDRESS");
+  }
+
+  const cleanPayments = (arr: any[]) =>
+    (Array.isArray(arr) ? arr : [])
+      .map((p) => ({
+        method: String(p?.method || "").toUpperCase(),
+        amount: moneyInt(p?.amount || 0),
+      }))
+      .filter((p) => ["CASH", "BANK", "CARD", "WALLET"].includes(p.method) && Number.isFinite(p.amount) && p.amount >= 0)
+      .map((p) => ({ method: p.method as "CASH" | "BANK" | "CARD" | "WALLET", amount: p.amount }));
+
+  let payments = cleanPayments(payload.payments || []);
+
+  // =========================
+  // ✅ Redeem server-truth (only CONFIRM)
+  // =========================
+  let pointsRedeemed = Math.max(0, Math.floor(Number(payload.pointsRedeemed || 0)));
+  let pointsRedeemAmount = 0;
+
+  if (status !== "CONFIRM") {
+    pointsRedeemed = 0;
+    pointsRedeemAmount = 0;
+  } else {
+    // CONFIRM
+    if (pointsRedeemed > 0) {
+      const phone = String(payload.customer?.phone || "").trim();
+      if (!phone) {
+        // có thể cho phép redeem theo customerId, nhưng payload FE hiện chỉ có phone
+        // => chặn để tránh redeem sai khách
+        throw new Error("REDEEM_REQUIRES_PHONE");
+      }
+
+      try {
+        const rr = await api.post("/loyalty-settings/calc-redeem", {
+          branchId: payload.branchId,
+          phone,
+          baseAmount,
+          points: pointsRedeemed,
+        });
+
+        const data = rr.data || {};
+        const serverPoints = moneyInt(data.points || 0);
+        const serverAmount = moneyInt(data.amount || 0);
+
+        pointsRedeemed = serverPoints;
+        pointsRedeemAmount = serverAmount;
+      } catch (e) {
+        // nếu calc fail: an toàn nhất là không redeem
+        pointsRedeemed = 0;
+        pointsRedeemAmount = 0;
+      }
+    }
+  }
+
+  const totalAfterRedeem = Math.max(0, baseAmount - pointsRedeemAmount);
+
+  // =========================
+  // Normalize per status (match BE rules)
+  // =========================
+  if (status === "PENDING") {
+    payments = [];
+  }
+
+  if (status === "CONFIRM") {
+    if (totalAfterRedeem <= 0) throw new Error("TOTAL_INVALID");
+
+    // 1 method UI didn't fill => auto full totalAfterRedeem
+    if (payments.length === 0) payments = [{ method: "CASH", amount: totalAfterRedeem }];
+    if (payments.length === 1 && moneyInt(payments[0].amount) === 0) payments = [{ ...payments[0], amount: totalAfterRedeem }];
+
+    const sum = moneyInt(payments.reduce((s, p) => s + Number(p.amount || 0), 0));
+    if (sum !== totalAfterRedeem) throw new Error("CONFIRM_REQUIRE_FULL_PAYMENT");
+  }
+
+  if (status === "DEBT") {
+    if (totalAfterRedeem <= 0) throw new Error("TOTAL_INVALID");
+    if (payments.length === 0) throw new Error("DEBT_REQUIRES_PAYMENT");
+
+    const sum = moneyInt(payments.reduce((s, p) => s + Number(p.amount || 0), 0));
+    if (!(sum > 0 && sum < totalAfterRedeem)) throw new Error("DEBT_REQUIRE_PARTIAL_PAYMENT");
+  }
+
+  // =========================
+  // Build body for backend
+  // =========================
+  const body: any = {
     channel: "POS",
+    status,
     branchId: payload.branchId,
-
     customer: payload.customer?.phone
       ? {
           phone: payload.customer.phone,
           name: payload.customer.name || "",
           email: payload.customer.email || "",
+          ...(payload.customer.dob ? { dob: payload.customer.dob } : {}),
         }
       : undefined,
-
     delivery: {
-      method: payload.delivery.method === "DELIVERY" ? "SHIP" : "PICKUP",
-      address: payload.delivery.address || "",
+      method: payload.delivery.method,
+      address: isShip ? payload.delivery.address || "" : "",
       note: payload.delivery.note || (payload.delivery.method === "PICKUP" ? "Bán tại quầy" : ""),
     },
-
-    discount: Number(payload.discount || 0),
-    extraFee: Number(payload.extraFee || 0),
+    discount,
+    extraFee,
     pricingNote: payload.pricingNote || "",
-
     items,
-  });
+    payments, // ✅ always send payments (or [] for pending)
 
-  const created = res.data?.order;
-  if (!created?._id) {
-    message.error({ content: "Tạo đơn thất bại.", key });
-    throw new Error("ORDER_CREATE_FAILED");
-  }
+    // ✅ send redeem ONLY when CONFIRM and server-truth
+    ...(status === "CONFIRM" && pointsRedeemed > 0 ? { pointsRedeemed } : {}),
+    ...(status === "CONFIRM" && pointsRedeemAmount > 0 ? { pointsRedeemAmount } : {}),
+  };
 
-  // 2) CONFIRM if needed
-  if (status === "CONFIRM") {
-    const method = payload.payment.method;
-    if (method === "PENDING") {
-      message.error({ content: "Không thể CONFIRM với phương thức PENDING.", key });
-      throw new Error("PAYMENT_METHOD_INVALID_FOR_CONFIRM");
-    }
+  const key = "pos-create-order";
+  message.loading({ content: "Đang tạo đơn...", key });
 
-    const totalServer = Number(created?.total || 0);
-    await api.post(`/orders/${created._id}/confirm`, {
-      payment: { method, amount: totalServer },
+  try {
+    const res = await api.post("/orders", body);
+    const created = res.data?.order;
+    const id = String(created?._id || "");
+    if (!id) throw new Error("ORDER_CREATE_FAILED");
+
+    setActiveOrders((prev) => prev.map((o) => (o.id === currentOrderId ? { ...o, items: [], customer: "Khách lẻ" } : o)));
+    await fetchProducts();
+
+    message.success({
+      content:
+        status === "CONFIRM"
+          ? "Đã tạo & xác nhận đơn thành công!"
+          : status === "DEBT"
+          ? "Đã tạo đơn ghi nợ thành công!"
+          : "Đã tạo đơn PENDING thành công!",
+      key,
+      duration: 2,
     });
+
+    return { _id: id };
+  } catch (err: any) {
+    console.error("completeOrderWithStatus error:", err?.response?.data || err?.message || err);
+
+    const beMsg = err?.response?.data?.message;
+    const msg =
+      beMsg ||
+      (err?.message === "POS_BRANCH_REQUIRED" ? "POS bắt buộc chọn 1 chi nhánh (không được ALL)." : "") ||
+      (err?.message === "EMPTY_CART" ? "Giỏ hàng đang trống." : "") ||
+      (err?.message === "SHIP_REQUIRES_PHONE" ? "Giao hàng: bắt buộc nhập SĐT." : "") ||
+      (err?.message === "SHIP_REQUIRES_ADDRESS" ? "Giao hàng: bắt buộc nhập địa chỉ." : "") ||
+      (err?.message === "REDEEM_REQUIRES_PHONE" ? "Sử dụng điểm: cần có SĐT khách hàng." : "") ||
+      (err?.message === "CONFIRM_REQUIRE_FULL_PAYMENT"
+        ? "CONFIRM: Tổng tiền thanh toán phải đúng bằng tổng đơn (sau khi trừ điểm/giảm giá/phụ phí)."
+        : "") ||
+      (err?.message === "DEBT_REQUIRES_PAYMENT" ? "DEBT: Phải nhập ít nhất 1 khoản thanh toán." : "") ||
+      (err?.message === "DEBT_REQUIRE_PARTIAL_PAYMENT" ? "DEBT: Phải thu một phần (0 < đã trả < tổng đơn sau trừ điểm)." : "") ||
+      "Không tạo đơn / thanh toán được.";
+
+    message.error({ content: msg, key, duration: 3 });
+    throw err;
   }
-
-  // 3) reset cart
-  setActiveOrders((prev) =>
-    prev.map((o) => (o.id === currentOrderId ? { ...o, items: [], customer: "Khách lẻ" } : o))
-  );
-
-  await fetchProducts();
-
-  message.success({
-    content: status === "CONFIRM" ? "Đã tạo & xác nhận đơn thành công!" : "Đã tạo đơn thành công!",
-    key,
-    duration: 2,
-  });
-
-  // ✅ IMPORTANT: return _id để POSSection in theo _id
-  return { orderId: created._id, order: created };
-
 };
 
 
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />}
-      />
+      <Route path="/login" element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />} />
 
       <Route
         path="/"
         element={
           <ProtectedRoute isAuthenticated={isLoggedIn}>
             <Layout
-  currentUser={currentUser}
-  onLogout={() => {
-    setIsLoggedIn(false);
-    setCurrentUser(null);
-  }}
-/>
+              currentUser={currentUser}
+              onLogout={() => {
+                setIsLoggedIn(false);
+                setCurrentUser(null);
+              }}
+            />
           </ProtectedRoute>
         }
       >
@@ -490,7 +610,7 @@ const updateQuantity = (productId: string, delta: number): void => {
               updateCustomerName={updateCustomerName}
               getTotal={getTotal}
               completeOrder={completeOrder}
-              completeOrderWithStatus={completeOrderWithStatus}
+              completeOrderWithStatus={completeOrderWithStatus as any}
               getCurrentOrder={getCurrentOrderFn}
               branches={branches}
               posBranchId={posBranchId}
@@ -504,15 +624,8 @@ const updateQuantity = (productId: string, delta: number): void => {
         <Route path="products" element={<ProductInputSection />} />
         <Route path="inventory" element={<InventorySection />} />
         <Route path="warehouse" element={<WarehouseSection />} />
-        <Route path="staff" element={<StaffSection />} />
-        <Route
-                path="shop-settings"
-                element={
-                  <ShopSettings
-                    branchId={posBranchId}
-                  />
-                }
-              />
+        <Route path="customers" element={<CustomersSection />} />
+        <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
         <Route path="revenue" element={<RevenueSection products={productsRaw as any} />} />
       </Route>
 

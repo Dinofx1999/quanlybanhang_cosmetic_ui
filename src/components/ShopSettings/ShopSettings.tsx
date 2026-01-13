@@ -1,3 +1,4 @@
+// src/components/ShopSettings/ShopSettings.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Card,
@@ -12,7 +13,6 @@ import {
   Divider,
   Upload,
   message,
-  TimePicker,
   Row,
   Col,
   Typography,
@@ -40,9 +40,13 @@ type ReceiptBlockType =
   | "PHONE"
   | "TAX_CODE"
   | "ORDER_META"
+  | "CUSTOMER_INFO"
+  | "LOYALTY_INFO"
   | "ITEMS_TABLE"
   | "TOTALS"
-  | "PAYMENT"
+  | "PAYMENTS_INFO"
+  | "BARCODE"
+  | "QR_PAYMENT"
   | "FOOTER_TEXT";
 
 type ReceiptBlock = {
@@ -63,15 +67,48 @@ const DEFAULT_RECEIPT_TEMPLATE: ReceiptBlock[] = [
   { id: genId(), type: "ADDRESS", enabled: true, align: "center", fontSize: 11 },
   { id: genId(), type: "PHONE", enabled: true, align: "center", fontSize: 11 },
   { id: genId(), type: "ORDER_META", enabled: true, align: "left", fontSize: 11 },
+  { id: genId(), type: "CUSTOMER_INFO", enabled: true, align: "left", fontSize: 11 },
+  { id: genId(), type: "LOYALTY_INFO", enabled: true, align: "left", fontSize: 11 },
   { id: genId(), type: "ITEMS_TABLE", enabled: true, align: "left", fontSize: 11 },
   { id: genId(), type: "TOTALS", enabled: true, align: "left", bold: true, fontSize: 12 },
-  { id: genId(), type: "PAYMENT", enabled: true, align: "left", fontSize: 11 },
+  { id: genId(), type: "PAYMENTS_INFO", enabled: true, align: "left", fontSize: 11 },
+  { id: genId(), type: "BARCODE", enabled: true, align: "center" },
+  { id: genId(), type: "QR_PAYMENT", enabled: true, align: "center" },
   { id: genId(), type: "FOOTER_TEXT", enabled: true, align: "center", fontSize: 11, text: "Cảm ơn quý khách!" },
 ];
 
 // ==========================
 // DTO settings
 // ==========================
+type TierCode = "BRONZE" | "SILVER" | "GOLD" | "DIAMOND";
+
+type LoyaltySettingDTO = {
+  downgradeTo: TierCode;
+
+  renew: {
+    enabled: boolean;
+    addDays: number;
+    basedOn: "NOW";
+    onlyForTiers: TierCode[];
+  };
+
+  autoUpgrade: {
+    enabled: boolean;
+    metric: "spend12m";
+  };
+
+  pointBase: {
+    field: "total" | "subtotal";
+  };
+
+  redeem: {
+    redeemEnable: boolean;
+    redeemValueVndPerPoint: number;
+    percentOfBill?: number;
+    maxPointsPerOrder?: number;
+  };
+};
+
 type ShopSettingsDTO = {
   branchId: string;
 
@@ -114,12 +151,7 @@ type ShopSettingsDTO = {
 
   loyalty: {
     enable: boolean;
-    earnRate: number;
-    earnUnitVnd: number;
-    redeemEnable: boolean;
-    redeemValueVndPerPoint: number;
-    pointsExpireDays: number;
-    birthdayBonusPoints: number;
+    setting?: LoyaltySettingDTO | null;
   };
 
   online: {
@@ -176,12 +208,21 @@ const DEFAULT_SETTINGS: Omit<ShopSettingsDTO, "branchId"> = {
 
   loyalty: {
     enable: true,
-    earnRate: 1,
-    earnUnitVnd: 1000,
-    redeemEnable: true,
-    redeemValueVndPerPoint: 100,
-    pointsExpireDays: 0,
-    birthdayBonusPoints: 50,
+    setting: {
+      downgradeTo: "BRONZE",
+      renew: {
+        enabled: true,
+        addDays: 365,
+        basedOn: "NOW",
+        onlyForTiers: ["SILVER", "GOLD", "DIAMOND"],
+      },
+      autoUpgrade: { enabled: true, metric: "spend12m" },
+      pointBase: { field: "total" },
+      redeem: {
+        redeemEnable: false,
+        redeemValueVndPerPoint: 1000,
+      },
+    },
   },
 
   online: {
@@ -245,15 +286,36 @@ const renderReceiptPreview = (
   };
 
   const demo = {
-    order: { code: "HD000123", time: dayjs().format("DD/MM/YYYY HH:mm"), cashier: "NV A" },
+    order: {
+      code: "HD000123",
+      time: dayjs().format("DD/MM/YYYY HH:mm"),
+      cashier: "NV A",
+      status: "CONFIRM",
+    },
+    customer: {
+      name: "Nguyễn Văn A",
+      phone: "0987654321",
+      address: "123 Lê Lợi, Q1, TP.HCM",
+    },
+    loyalty: {
+      pointsEarned: 50,
+      pointsRedeemed: 10,
+      redeemAmount: 10000,
+    },
     items: [
       { name: "Son môi 4AC - Hồng Hồng", qty: 1, price: 120000 },
       { name: "Kem dưỡng da", qty: 2, price: 85000 },
     ],
-    pay: { method: "CASH" },
+    payments: [
+      { method: "Tiền mặt", amount: 200000 },
+      { method: "Chuyển khoản", amount: 90000 },
+    ],
+    paid: 290000,
+    due: 0,
   };
 
   const sub = demo.items.reduce((s, it) => s + it.qty * it.price, 0);
+
   const itemsHtml = demo.items
     .map(
       (it) => `
@@ -276,33 +338,78 @@ const renderReceiptPreview = (
         return data.logoUrl
           ? `<div ${styleOf(b)}><img src="${esc(data.logoUrl)}" style="max-height:52px;max-width:100%;object-fit:contain;" /></div>`
           : `<div ${styleOf(b)}><div style="display:inline-block;padding:6px 10px;border:1px dashed #bbb;border-radius:8px;color:#666;">LOGO</div></div>`;
+
       case "BRAND_NAME":
         return `<div ${styleOf(b)}>${esc(data.brandName)}</div>`;
+
       case "SHOP_NAME":
         return `<div ${styleOf(b)}>${esc(data.shopName)}</div>`;
+
       case "ADDRESS":
         return `<div ${styleOf(b)}>${esc(data.address)}</div>`;
+
       case "PHONE":
         return `<div ${styleOf(b)}>ĐT: ${esc(data.phone)}</div>`;
+
       case "TAX_CODE":
         return data.taxCode ? `<div ${styleOf(b)}>MST: ${esc(data.taxCode)}</div>` : "";
+
       case "ORDER_META":
         return `<div style="font-size:${b.fontSize || 11}px;text-align:left;line-height:1.25;margin:2px 0;">
-          <div>Mã: <b>${esc(demo.order.code)}</b></div>
-          <div>Giờ: ${esc(demo.order.time)}</div>
+          <div>Mã đơn: <b>${esc(demo.order.code)}</b></div>
+          <div>Thời gian: ${esc(demo.order.time)}</div>
           <div>Thu ngân: ${esc(demo.order.cashier)}</div>
+          <div>Trạng thái: <b>${esc(demo.order.status)}</b></div>
         </div>`;
+
+      case "CUSTOMER_INFO":
+        return `${line}<div style="font-size:${b.fontSize || 11}px;text-align:left;line-height:1.25;margin:2px 0;">
+          <div style="font-weight:600;margin-bottom:3px;">THÔNG TIN KHÁCH HÀNG</div>
+          <div>Tên: <b>${esc(demo.customer.name)}</b></div>
+          <div>SĐT: <b>${esc(demo.customer.phone)}</b></div>
+          <div>Địa chỉ: ${esc(demo.customer.address)}</div>
+        </div>`;
+
+      case "LOYALTY_INFO":
+        return `<div style="font-size:${b.fontSize || 11}px;text-align:left;line-height:1.25;margin:2px 0;">
+          <div style="font-weight:600;margin-bottom:3px;">TÍCH ĐIỂM & ƯU ĐÃI</div>
+          <div>Đã dùng: <b>-${demo.loyalty.pointsRedeemed} điểm</b> (Giảm ${money(demo.loyalty.redeemAmount)}đ)</div>
+          <div>Tích lũy: <b>+${demo.loyalty.pointsEarned} điểm</b></div>
+        </div>`;
+
       case "ITEMS_TABLE":
         return `${line}<div ${styleOf(b)}>${itemsHtml}</div>${line}`;
+
       case "TOTALS":
         return `<div ${styleOf(b)} style="text-align:left;">
-          <div style="display:flex;justify-content:space-between;"><span>Tạm tính</span><b>${money(sub)}</b></div>
-          <div style="display:flex;justify-content:space-between;font-size:13px;"><span>Tổng</span><b>${money(sub)}</b></div>
+          <div style="display:flex;justify-content:space-between;margin:2px 0;"><span>Tạm tính</span><b>${money(sub)}</b></div>
+          <div style="display:flex;justify-content:space-between;margin:2px 0;"><span>Trừ điểm</span><span style="color:#9c27b0;">-${money(demo.loyalty.redeemAmount)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px;padding-top:4px;border-top:1px solid #333;"><span>TỔNG CỘNG</span><b>${money(sub - demo.loyalty.redeemAmount)}</b></div>
         </div>`;
-      case "PAYMENT":
-        return `<div ${styleOf(b)} style="text-align:left;">Thanh toán: <b>${esc(demo.pay.method)}</b></div>`;
+
+      case "PAYMENTS_INFO":
+        return `${line}<div style="font-size:${b.fontSize || 11}px;text-align:left;line-height:1.25;margin:2px 0;">
+          <div style="font-weight:600;margin-bottom:3px;">THANH TOÁN</div>
+          ${demo.payments
+            .map(
+              (p) =>
+                `<div style="display:flex;justify-content:space-between;margin:2px 0;"><span>${esc(p.method)}</span><b>${money(p.amount)}</b></div>`
+            )
+            .join("")}
+          <div style="display:flex;justify-content:space-between;font-weight:600;margin-top:4px;padding-top:4px;border-top:1px dashed #999;">
+            <span>Đã trả</span><span style="color:#388e3c;">${money(demo.paid)}</span>
+          </div>
+        </div>`;
+
+      case "BARCODE":
+        return `<div ${styleOf(b)}><div style="display:inline-block;padding:10px;border:1px dashed #bbb;border-radius:8px;color:#666;font-size:10px;">BARCODE: ${esc(demo.order.code)}</div></div>`;
+
+      case "QR_PAYMENT":
+        return `<div ${styleOf(b)}><div style="display:inline-block;padding:20px;border:1px dashed #bbb;border-radius:8px;color:#666;font-size:10px;">QR CODE<br/>Chuyển khoản</div></div>`;
+
       case "FOOTER_TEXT":
         return `<div ${styleOf(b)}>${esc(b.text || "Cảm ơn quý khách!")}</div>`;
+
       default:
         return "";
     }
@@ -319,7 +426,7 @@ const renderReceiptPreview = (
 };
 
 // ==========================
-// Branch types for Tab "Thông tin cửa hàng"
+// Branch types
 // ==========================
 type BranchItem = {
   _id: string;
@@ -339,10 +446,12 @@ type BranchItem = {
   receipt?: {
     header?: string;
     footer?: string;
-    paperSize?: number; // 56|80
+    paperSize?: number;
     showLogo?: boolean;
     showTaxCode?: boolean;
     template?: ReceiptBlock[];
+    showQRCode?: boolean;
+    showBarcode?: boolean;
   };
 
   posConfig?: {
@@ -353,7 +462,27 @@ type BranchItem = {
 };
 
 // ==========================
-// Helpers: chỉ gửi field khi có giá trị (không overwrite "")
+// Tier types
+// ==========================
+type TierDTO = {
+  _id: string;
+  code: "BRONZE" | "SILVER" | "GOLD" | "DIAMOND" | string;
+  name: string;
+  isActive: boolean;
+  priority: number;
+  earn: {
+    amountPerPoint: number;
+    round: "FLOOR" | "ROUND" | "CEIL";
+    minOrderAmount: number;
+  };
+  qualify: {
+    thresholdVnd: number;
+  };
+  durationDays: number;
+};
+
+// ==========================
+// Helpers
 // ==========================
 const normalizeStr = (v: any) => String(v ?? "").trim();
 const isNonEmpty = (v: any) => normalizeStr(v) !== "";
@@ -379,8 +508,19 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
   const [editingBranch, setEditingBranch] = useState<BranchItem | null>(null);
   const [branchForm] = Form.useForm();
 
+  const [loyaltySetting, setLoyaltySetting] = useState<LoyaltySettingDTO | null>(null);
+  const [tiers, setTiers] = useState<TierDTO[]>([]);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+
+  const [tierModalOpen, setTierModalOpen] = useState(false);
+  const [tierModalMode, setTierModalMode] = useState<"create" | "edit">("create");
+  const [editingTier, setEditingTier] = useState<TierDTO | null>(null);
+  const [tierForm] = Form.useForm();
+
+  const [useMinOrderGate, setUseMinOrderGate] = useState(false);
+
   // ==========================
-  // Load branches list (for cards)
+  // Load branches list
   // ==========================
   const loadBranches = async () => {
     setBranchLoading(true);
@@ -396,13 +536,195 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
   };
 
   // ==========================
+  // Load Loyalty setting + tiers
+  // ==========================
+  const loadLoyalty = async () => {
+    setLoyaltyLoading(true);
+    try {
+      const s = await api.get("/loyalty-settings");
+      const t = await api.get("/tiers");
+
+      const raw = s.data?.setting || null;
+
+      const normalized: LoyaltySettingDTO | null = raw
+        ? {
+            ...raw,
+            autoUpgrade: { ...(raw.autoUpgrade || {}), metric: "spend12m" },
+            pointBase: { ...(raw.pointBase || {}), field: (raw?.pointBase?.field || "total") as any },
+            redeem: {
+              redeemEnable: raw?.redeem?.redeemEnable ?? (raw as any)?.redeemEnable ?? false,
+              redeemValueVndPerPoint: Number(raw?.redeem?.redeemValueVndPerPoint ?? (raw as any)?.redeemValueVndPerPoint ?? 0),
+              percentOfBill: Number(raw?.redeem?.percentOfBill ?? (raw as any)?.percentOfBill ?? 0),
+              maxPointsPerOrder: Number(raw?.redeem?.maxPointsPerOrder ?? (raw as any)?.maxPointsPerOrder ?? 0),
+            },
+          }
+        : null;
+
+      const items: TierDTO[] = t.data?.items || [];
+      setLoyaltySetting(normalized);
+      setTiers(Array.isArray(items) ? items : []);
+      form.setFieldValue(["loyalty", "setting"], normalized);
+    } catch (e: any) {
+      setLoyaltySetting(null);
+      setTiers([]);
+      form.setFieldValue(["loyalty", "setting"], null);
+
+      const msg =
+        e?.response?.status === 404
+          ? "Chưa có API /loyalty-settings hoặc /tiers (backend 404)"
+          : "Không tải được Loyalty";
+      console.log(msg, e?.response?.data || e?.message);
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  };
+
+  const initLoyalty = async () => {
+    setLoyaltyLoading(true);
+    try {
+      const r = await api.post("/loyalty-settings/init");
+      if (!r.data?.ok) throw new Error(r.data?.message || "INIT_FAILED");
+      message.success("Đã khởi tạo Loyalty Setting");
+      await loadLoyalty();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || "Init thất bại (kiểm tra backend route)");
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  };
+
+  const saveLoyaltySetting = async () => {
+    try {
+      const setting = form.getFieldValue(["loyalty", "setting"]) as LoyaltySettingDTO | null;
+
+      setLoyaltyLoading(true);
+
+      const payload = setting
+        ? {
+            ...setting,
+            autoUpgrade: { ...(setting.autoUpgrade || {}), metric: "spend12m" as const },
+            redeem: {
+              redeemEnable: !!setting?.redeem?.redeemEnable,
+              redeemValueVndPerPoint: Number(setting?.redeem?.redeemValueVndPerPoint || 0),
+              percentOfBill: Number(setting?.redeem?.percentOfBill || 0),
+              maxPointsPerOrder: Number(setting?.redeem?.maxPointsPerOrder || 0),
+            },
+          }
+        : {};
+
+      const r = await api.put("/loyalty-settings", payload);
+      if (!r.data?.ok) throw new Error(r.data?.message || "SAVE_FAILED");
+      message.success("Đã lưu Loyalty Setting");
+      await loadLoyalty();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || "Lưu Loyalty Setting thất bại");
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  };
+
+  // Tier modal actions
+  const openCreateTier = () => {
+    setTierModalMode("create");
+    setEditingTier(null);
+    tierForm.resetFields();
+
+    setUseMinOrderGate(false);
+
+    tierForm.setFieldsValue({
+      code: "BRONZE",
+      name: "",
+      isActive: true,
+      priority: 0,
+
+      earn_amountPerPoint: 100000,
+      earn_round: "FLOOR",
+      earn_minOrderAmount: 0,
+
+      qualify_thresholdVnd: 0,
+      durationDays: 0,
+    });
+    setTierModalOpen(true);
+  };
+
+  const openEditTier = (t: TierDTO) => {
+    setTierModalMode("edit");
+    setEditingTier(t);
+    tierForm.resetFields();
+
+    const minGate = Number(t.earn?.minOrderAmount || 0);
+    setUseMinOrderGate(minGate > 0);
+
+    tierForm.setFieldsValue({
+      code: t.code,
+      name: t.name,
+      isActive: !!t.isActive,
+      priority: Number(t.priority || 0),
+
+      earn_amountPerPoint: Number(t.earn?.amountPerPoint || 0),
+      earn_round: t.earn?.round || "FLOOR",
+      earn_minOrderAmount: minGate,
+
+      qualify_thresholdVnd: Number(t.qualify?.thresholdVnd || 0),
+      durationDays: Number(t.durationDays || 0),
+    });
+
+    setTierModalOpen(true);
+  };
+
+  const submitTierModal = async () => {
+    try {
+      const v = await tierForm.validateFields();
+      setLoyaltyLoading(true);
+
+      const payload: any = {
+        code: String(v.code || "").toUpperCase(),
+        name: String(v.name || "").trim(),
+        isActive: !!v.isActive,
+        priority: Number(v.priority || 0),
+        earn: {
+          amountPerPoint: Number(v.earn_amountPerPoint || 0),
+          round: v.earn_round || "FLOOR",
+          minOrderAmount: useMinOrderGate ? Number(v.earn_minOrderAmount || 0) : 0,
+        },
+        qualify: { thresholdVnd: Number(v.qualify_thresholdVnd || 0) },
+        durationDays: Number(v.durationDays || 0),
+      };
+
+      if (tierModalMode === "create") {
+        const r = await api.post("/tiers", payload);
+        if (!r.data?.ok) throw new Error(r.data?.message || "CREATE_TIER_FAILED");
+        message.success("Đã tạo Tier");
+      } else {
+        if (!editingTier?._id) throw new Error("Missing tier id");
+        const r = await api.put(`/tiers/${editingTier._id}`, {
+          name: payload.name,
+          isActive: payload.isActive,
+          priority: payload.priority,
+          earn: payload.earn,
+          qualify: payload.qualify,
+          durationDays: payload.durationDays,
+        });
+        if (!r.data?.ok) throw new Error(r.data?.message || "UPDATE_TIER_FAILED");
+        message.success("Đã cập nhật Tier");
+      }
+
+      setTierModalOpen(false);
+      await loadLoyalty();
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      message.error(e?.response?.data?.message || e?.message || "Thao tác Tier thất bại");
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  };
+
+  // ==========================
   // Load current branch settings
   // ==========================
   const loadData = async () => {
     setLoading(true);
     try {
-      // NOTE: API của bạn hiện đang chưa có GET /branches/:id (bạn từng báo 404).
-      // Nếu backend đã thêm rồi thì ok, còn không thì bạn nên đổi loadData theo API bạn đang có.
       const res = await api.get(`/branches/${branchId}`);
       if (!res.data?.ok) throw new Error(res.data?.message || "LOAD_FAILED");
 
@@ -435,11 +757,21 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
           autoPrintAfterPaid: br?.posConfig?.autoPrintReceipt ?? DEFAULT_SETTINGS.receipt.autoPrintAfterPaid,
           template,
           showQRCode: br?.receipt?.showQRCode ?? true,
+          showBarcode: br?.receipt?.showBarcode ?? true,
         },
 
         tax: {
           ...DEFAULT_SETTINGS.tax,
           taxCode: br?.taxCode || "",
+        },
+
+        loyalty: {
+          ...DEFAULT_SETTINGS.loyalty,
+          setting: loyaltySetting || DEFAULT_SETTINGS.loyalty.setting,
+        },
+
+        online: {
+          ...DEFAULT_SETTINGS.online,
         },
       };
 
@@ -455,6 +787,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
 
   useEffect(() => {
     loadBranches();
+    loadLoyalty();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -464,16 +797,14 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
   }, [branchId]);
 
   // ==========================
-  // ✅ Save current branch settings (FIX overwrite "")
+  // Save current branch settings
   // ==========================
   const onSave = async () => {
     try {
       const values = await form.validateFields();
 
-      // ✅ payload chỉ gửi field có ý nghĩa + settings bill
       const payload: any = {};
 
-      // chỉ set nếu user có nhập (không gửi "")
       setIfNonEmpty(payload, "name", values.name);
       setIfNonEmpty(payload, "brandName", values.brandName);
       setIfNonEmpty(payload, "phone", values.phone);
@@ -482,13 +813,13 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
       setIfNonEmpty(payload, "logo", values.logoUrl);
       setIfNonEmpty(payload, "taxCode", values.tax?.taxCode);
 
-      // ✅ luôn gửi receipt + posConfig vì đây là thứ bạn đang chỉnh
       payload.receipt = {
         footer: normalizeStr(values.receipt?.footerNote || ""),
         paperSize: values.receipt?.paperSize === "80mm" ? 80 : 56,
         showLogo: !!values.receipt?.showLogo,
         template: tpl,
         showQRCode: !!values.receipt?.showQRCode,
+        showBarcode: !!values.receipt?.showBarcode,
       };
 
       payload.posConfig = {
@@ -524,7 +855,6 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
         const fd = new FormData();
         fd.append("file", file as File);
 
-        // ✅ bạn đang dùng endpoint này
         const up = await api.post(`/uploads/branch-logo`, fd, {
           headers: { "Content-Type": "multipart/form-data" },
         });
@@ -544,9 +874,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
     },
   };
 
-  // ==========================
-  // ✅ Upload logo cho MODAL create/edit branch (NEW)
-  // ==========================
+  // Upload logo for branch modal
   const branchLogoUploadProps: UploadProps = {
     accept: "image/*",
     showUploadList: false,
@@ -575,7 +903,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
   };
 
   // ==========================
-  // Template builder helpers
+  // Template helpers
   // ==========================
   const syncTpl = (next: ReceiptBlock[]) => {
     setTpl(next);
@@ -672,7 +1000,6 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
 
         const created: BranchItem = res.data.branch;
 
-        // ✅ update thêm các field mở rộng (brand/email/tax/logo/isMain) sau khi create
         if (created?._id) {
           const extra: any = {};
           setIfNonEmpty(extra, "brandName", values.brandName);
@@ -690,7 +1017,6 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
       } else {
         if (!editingBranch?._id) throw new Error("Missing branch id");
 
-        // ✅ chỉ gửi field có giá trị hoặc boolean
         const payload: any = {};
         setIfNonEmpty(payload, "code", values.code);
         setIfNonEmpty(payload, "name", values.name);
@@ -733,21 +1059,24 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
   };
 
   const LABEL_BLOCK: Record<ReceiptBlockType, string> = {
-  LOGO: "Logo",
-  BRAND_NAME: "Tên thương hiệu",
-  SHOP_NAME: "Tên chi nhánh",
-  ADDRESS: "Địa chỉ",
-  PHONE: "SĐT",
-  TAX_CODE: "MST",
-  ORDER_META: "Thông tin hoá đơn",
-  ITEMS_TABLE: "Danh sách sản phẩm",
-  TOTALS: "Tổng tiền",
-  PAYMENT: "Thanh toán",
-  FOOTER_TEXT: "Câu chữ cuối",
-};
+    LOGO: "Logo",
+    BRAND_NAME: "Tên thương hiệu",
+    SHOP_NAME: "Tên chi nhánh",
+    ADDRESS: "Địa chỉ",
+    PHONE: "SĐT",
+    TAX_CODE: "MST",
+    ORDER_META: "Thông tin hoá đơn",
+    CUSTOMER_INFO: "Thông tin khách hàng",
+    LOYALTY_INFO: "Tích điểm & ưu đãi",
+    ITEMS_TABLE: "Danh sách sản phẩm",
+    TOTALS: "Tổng tiền",
+    PAYMENTS_INFO: "Thanh toán",
+    BARCODE: "Barcode",
+    QR_PAYMENT: "QR chuyển khoản",
+    FOOTER_TEXT: "Câu chữ cuối",
+  };
 
-const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
-
+  const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
 
   const setMainBranch = async (br: BranchItem) => {
     try {
@@ -772,10 +1101,9 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
     [customers]
   );
 
-  const openTime = Form.useWatch("openTime", form);
-  const closeTime = Form.useWatch("closeTime", form);
   const enableVAT = Form.useWatch(["tax", "enableVAT"], form);
-  const enableLoyalty = Form.useWatch(["loyalty", "enable"], form);
+  const enableLoyaltyUI = Form.useWatch(["loyalty", "enable"], form);
+  const redeemEnable = Form.useWatch(["loyalty", "setting", "redeem", "redeemEnable"], form);
 
   return (
     <Card
@@ -789,7 +1117,14 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
       }
       extra={
         <Space>
-          <Button onClick={() => { loadData(); loadBranches(); }} disabled={loading || branchLoading}>
+          <Button
+            onClick={() => {
+              loadData();
+              loadBranches();
+              loadLoyalty();
+            }}
+            disabled={loading || branchLoading}
+          >
             Tải lại
           </Button>
           <Button type="primary" onClick={onSave} loading={loading} disabled={!dirty}>
@@ -809,7 +1144,7 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
       >
         <Tabs
           items={[
-            // ✅ TAB 1: Thông tin cửa hàng
+            // ===== TAB 1: Thông tin cửa hàng =====
             {
               key: "info",
               label: "Thông tin cửa hàng",
@@ -870,231 +1205,32 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
 
                             <Divider style={{ margin: "8px 0" }} />
 
-                            <Text><b>Brand:</b> {br.brandName || "—"}</Text>
-                            <Text><b>Phone:</b> {br.phone || "—"}</Text>
-                            <Text><b>Address:</b> {br.address || "—"}</Text>
+                            <Text>
+                              <b>Brand:</b> {br.brandName || "—"}
+                            </Text>
+                            <Text>
+                              <b>Phone:</b> {br.phone || "—"}
+                            </Text>
+                            <Text>
+                              <b>Address:</b> {br.address || "—"}
+                            </Text>
 
                             <Divider style={{ margin: "8px 0" }} />
 
                             <Space style={{ width: "100%", justifyContent: "space-between" }}>
                               <Text type="secondary">Set Main Brand</Text>
-                              <Switch
-                                checked={!!br.isMain}
-                                onChange={(v) => (v ? setMainBranch(br) : openEditBranch(br))}
-                                disabled={branchLoading}
-                              />
+                              <Switch checked={!!br.isMain} onChange={(v) => (v ? setMainBranch(br) : openEditBranch(br))} disabled={branchLoading} />
                             </Space>
-
-                            {!br.isMain ? (
-                              <Button onClick={() => setMainBranch(br)} disabled={branchLoading} block>
-                                Đặt làm Main Brand
-                              </Button>
-                            ) : null}
                           </Space>
                         </Card>
                       </Col>
                     ))}
                   </Row>
-
-                  <Modal
-                    open={branchModalOpen}
-                    onCancel={() => setBranchModalOpen(false)}
-                    title={branchModalMode === "create" ? "Thêm mới cửa hàng" : "Cập nhật cửa hàng"}
-                    okText={branchModalMode === "create" ? "Tạo" : "Lưu"}
-                    cancelText="Huỷ"
-                    onOk={submitBranchModal}
-                    confirmLoading={branchLoading}
-                    destroyOnClose
-                  >
-                    <Form form={branchForm} layout="vertical">
-                      <Row gutter={12}>
-                        <Col span={12}>
-                          <Form.Item
-                            label="Code"
-                            name="code"
-                            rules={[
-                              { required: true, message: "Nhập code" },
-                              { min: 2, message: "Tối thiểu 2 ký tự" },
-                            ]}
-                          >
-                            <Input placeholder="VD: TK01" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                          <Form.Item
-                            label="Tên cửa hàng"
-                            name="name"
-                            rules={[
-                              { required: true, message: "Nhập tên cửa hàng" },
-                              { min: 2, message: "Tối thiểu 2 ký tự" },
-                            ]}
-                          >
-                            <Input placeholder="VD: Bảo Ân Cosmetics - Tam Kỳ" />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-
-                      <Row gutter={12}>
-                        <Col span={12}>
-                          <Form.Item label="Số điện thoại" name="phone">
-                            <Input placeholder="090..." />
-                          </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                          <Form.Item label="Địa chỉ" name="address">
-                            <Input placeholder="Số nhà, đường..." />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-
-                      <Divider />
-
-                      <Row gutter={12}>
-                        <Col span={12}>
-                          <Form.Item label="Brand Name" name="brandName">
-                            <Input placeholder="Bảo Ân Cosmetics" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                          <Form.Item label="Email" name="email" rules={[{ type: "email", message: "Email không hợp lệ" }]}>
-                            <Input placeholder="shop@email.com" />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-
-                      <Row gutter={12}>
-                        <Col span={12}>
-                          <Form.Item label="MST" name="taxCode">
-                            <Input placeholder="Mã số thuế" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                          {/* ✅ Upload logo trong modal */}
-                          <Form.Item label="Logo" name="logo">
-                            <Space style={{ width: "100%", justifyContent: "space-between" }}>
-                              <Input placeholder="http://.../uploads/..." />
-                              <Upload {...branchLogoUploadProps}>
-                                <Button>Upload</Button>
-                              </Upload>
-                            </Space>
-                            {branchForm.getFieldValue("logo") ? (
-                              <div style={{ marginTop: 8, textAlign: "center" }}>
-                                <img
-                                  src={branchForm.getFieldValue("logo")}
-                                  alt="logo"
-                                  style={{ maxHeight: 70, maxWidth: "100%", objectFit: "contain" }}
-                                />
-                              </div>
-                            ) : null}
-                          </Form.Item>
-                        </Col>
-                      </Row>
-
-                      <Form.Item label="Set Main Brand" name="isMain" valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-
-                      <Alert
-                        type="info"
-                        showIcon
-                        message="Lưu ý"
-                        description='Khi bật "Main Brand": backend sẽ tự tắt isMain của các cửa hàng khác.'
-                      />
-                    </Form>
-                  </Modal>
                 </>
               ),
             },
 
-            // ===== TAB Vận hành giữ nguyên =====
-            // {
-            //   key: "ops",
-            //   label: "Vận hành",
-            //   children: (
-            //     <>
-            //       <Row gutter={16}>
-            //         <Col xs={24} md={12}>
-            //           <Form.Item label="Ngày mở cửa" name="openDays">
-            //             <Select
-            //               mode="multiple"
-            //               options={(Object.keys(WEEKDAY_LABEL) as unknown as Weekday[]).map((d) => ({
-            //                 value: d,
-            //                 label: WEEKDAY_LABEL[d],
-            //               }))}
-            //             />
-            //           </Form.Item>
-            //         </Col>
-
-            //         <Col xs={24} md={12}>
-            //           <Row gutter={16}>
-            //             <Col span={12}>
-            //               <Form.Item label="Giờ mở cửa">
-            //                 <TimePicker
-            //                   value={toTimeDayjs(openTime || "08:00")}
-            //                   format="HH:mm"
-            //                   style={{ width: "100%" }}
-            //                   onChange={(t) => form.setFieldValue("openTime", toHHmm(t))}
-            //                 />
-            //               </Form.Item>
-            //             </Col>
-            //             <Col span={12}>
-            //               <Form.Item label="Giờ đóng cửa">
-            //                 <TimePicker
-            //                   value={toTimeDayjs(closeTime || "22:00")}
-            //                   format="HH:mm"
-            //                   style={{ width: "100%" }}
-            //                   onChange={(t) => form.setFieldValue("closeTime", toHHmm(t))}
-            //                 />
-            //               </Form.Item>
-            //             </Col>
-            //           </Row>
-            //         </Col>
-            //       </Row>
-
-            //       <Divider />
-
-            //       <Row gutter={16}>
-            //         <Col xs={24} md={12}>
-            //           <Form.Item label="Cho phép âm kho (POS)" name="allowNegativeStock" valuePropName="checked">
-            //             <Switch />
-            //           </Form.Item>
-            //           <Text type="secondary">Bật khi bạn muốn bán trước - nhập hàng sau (cần audit tồn kho).</Text>
-            //         </Col>
-
-            //         <Col xs={24} md={12}>
-            //           <Form.Item label="Cho phép sửa giá trực tiếp tại POS" name="allowEditPriceAtPOS" valuePropName="checked">
-            //             <Switch />
-            //           </Form.Item>
-            //           <Text type="secondary">Nếu bật, nhân viên có thể override giá (khuyến nghị có log).</Text>
-            //         </Col>
-            //       </Row>
-
-            //       <Divider />
-
-            //       <Row gutter={16}>
-            //         <Col xs={24} md={12}>
-            //           <Form.Item label="Bắt buộc nhập khách hàng để tích điểm" name="requireCustomerForPoints" valuePropName="checked">
-            //             <Switch />
-            //           </Form.Item>
-            //           <Text type="secondary">Khi tắt: cho phép bán “khách lẻ” vẫn tích điểm vào khách mặc định.</Text>
-            //         </Col>
-            //         <Col xs={24} md={12}>
-            //           <Form.Item label="Khách mặc định" name="defaultCustomerId">
-            //             <Select
-            //               allowClear
-            //               placeholder="Chọn khách mặc định (khách lẻ)"
-            //               options={customerOptions}
-            //               showSearch
-            //               optionFilterProp="label"
-            //             />
-            //           </Form.Item>
-            //         </Col>
-            //       </Row>
-            //     </>
-            //   ),
-            // },
-
-            // ===== TAB Receipt: giữ nguyên, chỉ fix logic save ở trên =====
+            // ===== TAB 2: Receipt =====
             {
               key: "receipt",
               label: "Cài Đặt In Bill",
@@ -1151,12 +1287,7 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
                     <Input.TextArea rows={2} placeholder="VD: Đổi trả trong 7 ngày (còn hoá đơn)..." />
                   </Form.Item>
 
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="Gợi ý"
-                    description="Với máy in 56mm, tránh nội dung quá dài; QRCode & barcode nên bật/tắt theo mẫu bill bạn đang dùng."
-                  />
+                  <Alert type="info" showIcon message="Gợi ý" description="Với máy in 56mm, tránh nội dung quá dài; QRCode & barcode nên bật/tắt theo mẫu bill bạn đang dùng." />
 
                   <Form.Item name={["receipt", "template"]} hidden>
                     <Input />
@@ -1173,7 +1304,7 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
                           <Space>
                             <Button onClick={resetTpl}>Reset</Button>
                             <Select
-                              style={{ width: 190 }}
+                              style={{ width: 220 }}
                               placeholder="Thêm block"
                               onChange={(v) => addBlock(v as ReceiptBlockType)}
                               options={[
@@ -1184,9 +1315,13 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
                                 { value: "PHONE", label: "SĐT" },
                                 { value: "TAX_CODE", label: "MST" },
                                 { value: "ORDER_META", label: "Thông tin hoá đơn" },
+                                { value: "CUSTOMER_INFO", label: "Thông tin khách hàng" },
+                                { value: "LOYALTY_INFO", label: "Tích điểm & ưu đãi" },
                                 { value: "ITEMS_TABLE", label: "Danh sách sản phẩm" },
                                 { value: "TOTALS", label: "Tổng tiền" },
-                                { value: "PAYMENT", label: "Thanh toán" },
+                                { value: "PAYMENTS_INFO", label: "Thanh toán" },
+                                { value: "BARCODE", label: "Barcode" },
+                                { value: "QR_PAYMENT", label: "QR chuyển khoản" },
                                 { value: "FOOTER_TEXT", label: "Câu chữ cuối" },
                               ]}
                             />
@@ -1217,7 +1352,7 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
 
                               <Row gutter={12} style={{ marginTop: 10 }}>
                                 <Col xs={24} md={8}>
-                                  <Text type="secondary">Canh chỉnh(Trái, Giữa, Phải)</Text>
+                                  <Text type="secondary">Canh chỉnh</Text>
                                   <Select
                                     value={b.align || "left"}
                                     style={{ width: "100%" }}
@@ -1264,7 +1399,7 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
                           ))}
                         </div>
 
-                        <Alert style={{ marginTop: 12 }} type="info" showIcon message="Mẹo" description="Bill 56mm nên gọn: BRAND + ORDER_META + ITEMS + TOTALS + FOOTER." />
+                        <Alert style={{ marginTop: 12 }} type="info" showIcon message="Mẹo" description="Bill 56mm nên gọn. Bill 80mm có thể hiển thị đầy đủ: Logo, Customer Info, Loyalty, Items, Totals, Payments, Barcode, QR." />
                       </Card>
                     </Col>
 
@@ -1272,18 +1407,14 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
                       <Card size="small" title="Preview bill">
                         <div
                           dangerouslySetInnerHTML={{
-                            __html: renderReceiptPreview(
-                              tpl,
-                              form.getFieldValue(["receipt", "paperSize"]) || "56mm",
-                              {
-                                logoUrl: form.getFieldValue("logoUrl") || "",
-                                brandName: form.getFieldValue("brandName") || form.getFieldValue("name") || "SHOP",
-                                shopName: form.getFieldValue("name") || "Chi nhánh",
-                                address: form.getFieldValue("address") || "—",
-                                phone: form.getFieldValue("phone") || "—",
-                                taxCode: form.getFieldValue(["tax", "taxCode"]) || "",
-                              }
-                            ),
+                            __html: renderReceiptPreview(tpl, form.getFieldValue(["receipt", "paperSize"]) || "56mm", {
+                              logoUrl: form.getFieldValue("logoUrl") || "",
+                              brandName: form.getFieldValue("brandName") || form.getFieldValue("name") || "SHOP",
+                              shopName: form.getFieldValue("name") || "Chi nhánh",
+                              address: form.getFieldValue("address") || "—",
+                              phone: form.getFieldValue("phone") || "—",
+                              taxCode: form.getFieldValue(["tax", "taxCode"]) || "",
+                            }),
                           }}
                         />
                       </Card>
@@ -1293,53 +1424,7 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
               ),
             },
 
-            // ===== TAB Tax giữ nguyên =====
-            {
-              key: "tax",
-              label: "Thuế & hoá đơn",
-              children: (
-                <>
-                  <Row gutter={16}>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Bật VAT" name={["tax", "enableVAT"]} valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="VAT (%)" name={["tax", "vatPercent"]}>
-                        <InputNumber min={0} max={100} style={{ width: "100%" }} disabled={!enableVAT} />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Hiện VAT trên bill" name={["tax", "showVATOnReceipt"]} valuePropName="checked">
-                        <Switch disabled={!enableVAT} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  <Divider />
-
-                  <Row gutter={16}>
-                    <Col xs={24} md={12}>
-                      <Form.Item label="Tên công ty" name={["tax", "companyName"]}>
-                        <Input disabled={!enableVAT} />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Form.Item label="Mã số thuế" name={["tax", "taxCode"]}>
-                        <Input disabled={!enableVAT} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  <Form.Item label="Ghi chú hoá đơn" name={["tax", "invoiceNote"]}>
-                    <Input.TextArea rows={2} disabled={!enableVAT} />
-                  </Form.Item>
-                </>
-              ),
-            },
-
-            // ===== TAB Loyalty giữ nguyên =====
+            // ===== TAB 3: Loyalty =====
             {
               key: "loyalty",
               label: "Tích điểm",
@@ -1347,94 +1432,255 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
                 <>
                   <Row gutter={16}>
                     <Col xs={24} md={8}>
-                      <Form.Item label="Bật tích điểm" name={["loyalty", "enable"]} valuePropName="checked">
+                      <Form.Item label="Bật hiển thị tích điểm (POS)" name={["loyalty", "enable"]} valuePropName="checked">
                         <Switch />
                       </Form.Item>
+                      <Text type="secondary">Chỉ bật/tắt UI ở POS. Rule/engine vẫn chạy theo backend khi đơn CONFIRM.</Text>
                     </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="1 điểm / (VND)" name={["loyalty", "earnUnitVnd"]}>
-                        <InputNumber min={1} step={500} style={{ width: "100%" }} disabled={!enableLoyalty} />
-                      </Form.Item>
-                      <Text type="secondary">VD: 1000 nghĩa là 1 điểm / 1.000đ</Text>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Hết hạn (ngày)" name={["loyalty", "pointsExpireDays"]}>
-                        <InputNumber min={0} style={{ width: "100%" }} disabled={!enableLoyalty} />
-                      </Form.Item>
-                      <Text type="secondary">0 = không hết hạn</Text>
+
+                    <Col xs={24} md={16}>
+                      <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+                        <Button onClick={loadLoyalty} loading={loyaltyLoading}>
+                          Tải cấu hình
+                        </Button>
+                        {!loyaltySetting ? (
+                          <Button type="primary" onClick={initLoyalty} loading={loyaltyLoading}>
+                            Khởi tạo (Init)
+                          </Button>
+                        ) : (
+                          <Button type="primary" onClick={saveLoyaltySetting} loading={loyaltyLoading}>
+                            Lưu Loyalty Setting
+                          </Button>
+                        )}
+                      </Space>
                     </Col>
                   </Row>
 
                   <Divider />
 
-                  <Row gutter={16}>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Cho phép đổi điểm" name={["loyalty", "redeemEnable"]} valuePropName="checked">
-                        <Switch disabled={!enableLoyalty} />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Giá trị (VND) / 1 điểm" name={["loyalty", "redeemValueVndPerPoint"]}>
-                        <InputNumber min={0} step={50} style={{ width: "100%" }} disabled={!enableLoyalty} />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Thưởng sinh nhật (điểm)" name={["loyalty", "birthdayBonusPoints"]}>
-                        <InputNumber min={0} style={{ width: "100%" }} disabled={!enableLoyalty} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
+                  {!enableLoyaltyUI ? (
+                    <Alert type="info" showIcon message="Đang tắt hiển thị tích điểm (POS UI)" description="Bạn vẫn có thể chỉnh rule/tier bên dưới. POS sẽ ẩn phần tích điểm." />
+                  ) : null}
 
-                  <Alert
-                    type="success"
-                    showIcon
-                    message="Gợi ý chính sách phù hợp bán lẻ"
-                    description="Dễ vận hành nhất: 1 điểm / 1.000đ, đổi 1 điểm = 100đ hoặc 200đ; hạn 0 hoặc 365 ngày tuỳ chiến lược."
-                  />
-                </>
-              ),
-            },
+                  {!loyaltySetting ? (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="Chưa có Loyalty Setting / Tier"
+                      description={
+                        <>
+                          <div>Bạn đang gặp 404 ở backend (ví dụ: GET /tiers, POST /loyalty-settings/init).</div>
+                          <div>Bấm "Khởi tạo (Init)" sau khi bạn đã tạo route backend tương ứng.</div>
+                        </>
+                      }
+                    />
+                  ) : (
+                    <>
+                      <Card size="small" title="Cấu hình Loyalty (global)">
+                        <Row gutter={16}>
+                          <Col xs={24} md={8}>
+                            <Form.Item label="Rơi xuống tier khi hết hạn" name={["loyalty", "setting", "downgradeTo"]}>
+                              <Select
+                                options={[
+                                  { value: "BRONZE", label: "BRONZE (Đồng)" },
+                                  { value: "SILVER", label: "SILVER (Bạc)" },
+                                  { value: "GOLD", label: "GOLD (Vàng)" },
+                                  { value: "DIAMOND", label: "DIAMOND (Kim cương)" },
+                                ]}
+                              />
+                            </Form.Item>
+                          </Col>
 
-            // ===== TAB Online giữ nguyên =====
-            {
-              key: "online",
-              label: "Online & thông báo",
-              children: (
-                <>
-                  <Row gutter={16}>
-                    <Col xs={24} md={12}>
-                      <Form.Item label="Bật đơn online" name={["online", "enableOnlineOrders"]} valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                      <Text type="secondary">Khi bật: đơn web/online đổ về Orders, dùng allocate stock theo branch chính.</Text>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Form.Item label="Tự đối soát đã trả (ngân hàng)" name={["online", "autoConfirmPaidByBank"]} valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                      <Text type="secondary">Bật khi bạn đã tích hợp luồng nhận giao dịch/đối soát.</Text>
-                    </Col>
-                  </Row>
+                          <Col xs={24} md={8}>
+                            <Form.Item label="Tính điểm theo field của order" name={["loyalty", "setting", "pointBase", "field"]}>
+                              <Select options={[{ value: "total", label: "order.total (khuyến nghị)" }, { value: "subtotal", label: "order.subtotal" }]} />
+                            </Form.Item>
+                          </Col>
 
-                  <Divider />
+                          <Col xs={24} md={8}>
+                            <Form.Item label="Auto upgrade" name={["loyalty", "setting", "autoUpgrade", "enabled"]} valuePropName="checked">
+                              <Switch />
+                            </Form.Item>
+                            <Text type="secondary">Nâng hạng theo mốc "Chi tiêu 12 tháng" của từng Tier.</Text>
+                          </Col>
+                        </Row>
 
-                  <Row gutter={16}>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Thông báo Zalo" name={["online", "orderNotifyZalo"]} valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Thông báo Telegram" name={["online", "orderNotifyTelegram"]} valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="SĐT nhận thông báo" name={["online", "notifyPhone"]}>
-                        <Input placeholder="VD: 090..." />
-                      </Form.Item>
-                    </Col>
-                  </Row>
+                        <Divider />
+
+                        <Row gutter={16}>
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Renew khi mua" name={["loyalty", "setting", "renew", "enabled"]} valuePropName="checked">
+                              <Switch />
+                            </Form.Item>
+                          </Col>
+
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Cộng thêm (ngày)" name={["loyalty", "setting", "renew", "addDays"]}>
+                              <InputNumber min={1} style={{ width: "100%" }} />
+                            </Form.Item>
+                          </Col>
+
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Based on" name={["loyalty", "setting", "renew", "basedOn"]}>
+                              <Select options={[{ value: "NOW", label: "NOW (tính từ lúc confirm đơn)" }]} />
+                            </Form.Item>
+                          </Col>
+
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Áp dụng renew cho tier" name={["loyalty", "setting", "renew", "onlyForTiers"]}>
+                              <Select
+                                mode="multiple"
+                                options={[
+                                  { value: "SILVER", label: "SILVER" },
+                                  { value: "GOLD", label: "GOLD" },
+                                  { value: "DIAMOND", label: "DIAMOND" },
+                                  { value: "BRONZE", label: "BRONZE" },
+                                ]}
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+
+                        <Divider />
+
+                        <Row gutter={16}>
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Cho phép đổi điểm (Redeem)" name={["loyalty", "setting", "redeem", "redeemEnable"]} valuePropName="checked">
+                              <Switch />
+                            </Form.Item>
+                            <Text type="secondary">Cho phép trừ điểm để giảm tiền khi thanh toán.</Text>
+                          </Col>
+
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Giá trị VNĐ / 1 point" name={["loyalty", "setting", "redeem", "redeemValueVndPerPoint"]}>
+                              <InputNumber min={0} step={100} style={{ width: "100%" }} disabled={!redeemEnable} />
+                            </Form.Item>
+                            <Text type="secondary">Ví dụ: 1 point = 1.000đ.</Text>
+                          </Col>
+
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Phần trăm hóa đơn tối đa (%)" name={["loyalty", "setting", "redeem", "percentOfBill"]}>
+                              <InputNumber min={0} max={100} step={5} addonAfter="%" style={{ width: "100%" }} disabled={!redeemEnable} />
+                            </Form.Item>
+                            <Text type="secondary">Ví dụ: tối đa 30% giá trị hóa đơn.</Text>
+                          </Col>
+
+                          <Col xs={24} md={6}>
+                            <Form.Item label="Điểm tối đa / 1 đơn" name={["loyalty", "setting", "redeem", "maxPointsPerOrder"]}>
+                              <InputNumber min={0} step={10} style={{ width: "100%" }} disabled={!redeemEnable} />
+                            </Form.Item>
+                            <Text type="secondary">Giới hạn cứng số point có thể dùng cho mỗi đơn.</Text>
+                          </Col>
+                        </Row>
+
+                        <Row className="mt-3">
+                          <Col span={24}>
+                            <Alert
+                              type="info"
+                              showIcon
+                              message="Gợi ý cấu hình an toàn"
+                              description={
+                                <>
+                                  • Không nên cho dùng quá <b>30–40%</b> giá trị hóa đơn
+                                  <br />• Nên giới hạn <b>maxPointsPerOrder</b> để tránh xả điểm lớn
+                                </>
+                              }
+                            />
+                          </Col>
+                        </Row>
+
+                        <Alert
+                          style={{ marginTop: 12 }}
+                          type="info"
+                          showIcon
+                          message="Ghi chú"
+                          description="Renew NOW: mỗi lần đơn CONFIRM → expiresAt = now + addDays (không cộng dồn vào hạn cũ)."
+                        />
+                      </Card>
+
+                      <Divider />
+
+                      <Card
+                        size="small"
+                        title="Danh sách Tier (sửa trực tiếp tại đây)"
+                        extra={
+                          <Space>
+                            <Button onClick={loadLoyalty} loading={loyaltyLoading}>
+                              Refresh Tier
+                            </Button>
+                            <Button type="primary" onClick={openCreateTier}>
+                              Thêm Tier
+                            </Button>
+                          </Space>
+                        }
+                      >
+                        {tiers.length === 0 ? (
+                          <Alert type="warning" showIcon message="Chưa có Tier" description="Bạn cần tạo BRONZE/SILVER/GOLD/DIAMOND trong DB (bấm Thêm Tier)." />
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {tiers.map((t) => (
+                              <div key={t._id} style={{ border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
+                                <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                                  <Space>
+                                    <Text strong>{t.code}</Text>
+                                    <Tag color={t.isActive ? "green" : "default"}>{t.isActive ? "ACTIVE" : "OFF"}</Tag>
+                                    <Text type="secondary">{t.name}</Text>
+                                  </Space>
+
+                                  <Space>
+                                    <Text type="secondary">priority: {t.priority ?? 0}</Text>
+                                    <Button size="small" onClick={() => openEditTier(t)}>
+                                      Sửa
+                                    </Button>
+                                  </Space>
+                                </Space>
+
+                                <Divider style={{ margin: "8px 0" }} />
+
+                                <Row gutter={16}>
+                                  <Col xs={24} md={6}>
+                                    <Text type="secondary">Tích điểm</Text>
+                                    <div>
+                                      <b>{money(t.earn?.amountPerPoint || 0)}</b> / 1 point
+                                    </div>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Text type="secondary">Làm tròn</Text>
+                                    <div>
+                                      <b>{t.earn?.round || "FLOOR"}</b>
+                                    </div>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Text type="secondary">Chặn đơn nhỏ</Text>
+                                    <div>
+                                      <b>{money(t.earn?.minOrderAmount || 0)}</b>
+                                    </div>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Text type="secondary">Hạn tier</Text>
+                                    <div>
+                                      <b>{t.durationDays ? `${t.durationDays} ngày` : "Không hạn"}</b>
+                                    </div>
+                                  </Col>
+                                </Row>
+
+                                <Divider style={{ margin: "8px 0" }} />
+
+                                <Row gutter={16}>
+                                  <Col xs={24} md={12}>
+                                    <Text type="secondary">Ngưỡng lên hạng (thresholdVnd)</Text>
+                                    <div>
+                                      <b>{money(t.qualify?.thresholdVnd || 0)}</b>
+                                    </div>
+                                  </Col>
+                                </Row>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                    </>
+                  )}
                 </>
               ),
             },
@@ -1447,13 +1693,20 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
           <Button type="primary" onClick={onSave} loading={loading} disabled={!dirty}>
             Lưu thay đổi (chi nhánh hiện tại)
           </Button>
-          <Button onClick={() => { loadData(); loadBranches(); }} disabled={loading}>
+          <Button
+            onClick={() => {
+              loadData();
+              loadBranches();
+              loadLoyalty();
+            }}
+            disabled={loading}
+          >
             Hủy / Tải lại
           </Button>
         </Space>
 
-        {/* ✅ Optional: khu vực upload logo cho branch hiện tại nếu bạn muốn hiển thị ở ngoài tab */}
         <Divider />
+
         <Space direction="vertical" style={{ width: "100%" }}>
           <Text strong>Logo chi nhánh hiện tại</Text>
           <Space>
@@ -1463,14 +1716,217 @@ const Convert_Type = (type: ReceiptBlockType) => LABEL_BLOCK[type] || type;
             <Text type="secondary">{form.getFieldValue("logoUrl") || "Chưa có logo"}</Text>
           </Space>
           {form.getFieldValue("logoUrl") ? (
-            <img
-              src={form.getFieldValue("logoUrl")}
-              alt="logo"
-              style={{ maxHeight: 80, maxWidth: 240, objectFit: "contain" }}
-            />
+            <img src={form.getFieldValue("logoUrl")} alt="logo" style={{ maxHeight: 80, maxWidth: 240, objectFit: "contain" }} />
           ) : null}
         </Space>
       </Form>
+
+      {/* ===== Branch Modal ===== */}
+      <Modal
+        open={branchModalOpen}
+        onCancel={() => setBranchModalOpen(false)}
+        title={branchModalMode === "create" ? "Thêm mới cửa hàng" : "Cập nhật cửa hàng"}
+        okText={branchModalMode === "create" ? "Tạo" : "Lưu"}
+        cancelText="Huỷ"
+        onOk={submitBranchModal}
+        confirmLoading={branchLoading}
+        destroyOnClose
+      >
+        <Form form={branchForm} layout="vertical">
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Code" name="code" rules={[{ required: true, message: "Nhập code" }, { min: 2, message: "Tối thiểu 2 ký tự" }]}>
+                <Input placeholder="VD: TK01" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Tên cửa hàng" name="name" rules={[{ required: true, message: "Nhập tên cửa hàng" }, { min: 2, message: "Tối thiểu 2 ký tự" }]}>
+                <Input placeholder="VD: Bảo Ân Cosmetics - Tam Kỳ" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Số điện thoại" name="phone">
+                <Input placeholder="090..." />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Địa chỉ" name="address">
+                <Input placeholder="Số nhà, đường..." />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider />
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Brand Name" name="brandName">
+                <Input placeholder="Bảo Ân Cosmetics" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Email" name="email" rules={[{ type: "email", message: "Email không hợp lệ" }]}>
+                <Input placeholder="shop@email.com" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="MST" name="taxCode">
+                <Input placeholder="Mã số thuế" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Logo" name="logo">
+                <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                  <Input placeholder="http://.../uploads/..." />
+                  <Upload {...branchLogoUploadProps}>
+                    <Button>Upload</Button>
+                  </Upload>
+                </Space>
+                {branchForm.getFieldValue("logo") ? (
+                  <div style={{ marginTop: 8, textAlign: "center" }}>
+                    <img src={branchForm.getFieldValue("logo")} alt="logo" style={{ maxHeight: 70, maxWidth: "100%", objectFit: "contain" }} />
+                  </div>
+                ) : null}
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item label="Set Main Brand" name="isMain" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+
+          <Alert type="info" showIcon message="Lưu ý" description='Khi bật "Main Brand": backend sẽ tự tắt isMain của các cửa hàng khác.' />
+        </Form>
+      </Modal>
+
+      {/* ===== Tier Modal ===== */}
+      <Modal
+        open={tierModalOpen}
+        onCancel={() => setTierModalOpen(false)}
+        title={tierModalMode === "create" ? "Thêm Tier" : `Sửa Tier: ${editingTier?.code || ""}`}
+        okText={tierModalMode === "create" ? "Tạo" : "Lưu"}
+        cancelText="Huỷ"
+        onOk={submitTierModal}
+        confirmLoading={loyaltyLoading}
+        destroyOnClose
+      >
+        <Form form={tierForm} layout="vertical">
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Code" name="code" rules={[{ required: true, message: "Chọn code" }]}>
+                <Select
+                  disabled={tierModalMode === "edit"}
+                  options={[
+                    { value: "BRONZE", label: "BRONZE" },
+                    { value: "SILVER", label: "SILVER" },
+                    { value: "GOLD", label: "GOLD" },
+                    { value: "DIAMOND", label: "DIAMOND" },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+
+            <Col span={12}>
+              <Form.Item label="Tên hiển thị" name="name" rules={[{ required: true, message: "Nhập tên" }]}>
+                <Input placeholder="VD: Đồng / Bạc / Vàng / Kim cương" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Active" name="isActive" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Xếp Hạng Level" name="priority">
+                <InputNumber style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider />
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Amount / 1 point (VND)" name="earn_amountPerPoint" rules={[{ required: true, message: "Nhập amountPerPoint" }]}>
+                <InputNumber min={1} step={1000} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Round" name="earn_round">
+                <Select
+                  options={[
+                    { value: "FLOOR", label: "FLOOR (lấy xuống)" },
+                    { value: "ROUND", label: "ROUND" },
+                    { value: "CEIL", label: "CEIL (lấy lên)" },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider />
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                <Text strong>Chặn đơn nhỏ (Min order)</Text>
+                <Switch checked={useMinOrderGate} onChange={setUseMinOrderGate} />
+              </Space>
+              <Text type="secondary">Nếu bạn không cần, tắt đi. Khi tắt: backend nhận minOrderAmount = 0.</Text>
+            </Col>
+
+            <Col span={12}>
+              <Form.Item label="Min order amount (VND)" name="earn_minOrderAmount">
+                <InputNumber min={0} step={1000} style={{ width: "100%" }} disabled={!useMinOrderGate} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider />
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Ngưỡng lên hạng (thresholdVnd)" name="qualify_thresholdVnd">
+                <InputNumber min={0} step={100000} style={{ width: "100%" }} />
+              </Form.Item>
+              <Text type="secondary">VD: SILVER 10.000.000, GOLD 30.000.000…</Text>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Duration (ngày) - 0 = không hạn" name="durationDays">
+                <InputNumber min={0} step={30} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Alert
+            type="info"
+            showIcon
+            message="Chuẩn hoá logic"
+            description={
+              <div>
+                <div>
+                  • Điểm cộng khi đơn <b>CONFIRM</b>.
+                </div>
+                <div>
+                  • amountPerPoint = số tiền để được <b>1 điểm</b> (VD 100.000 = 1 điểm).
+                </div>
+                <div>
+                  • thresholdVnd = ngưỡng chi tiêu 12 tháng để <b>lên hạng</b>.
+                </div>
+              </div>
+            }
+          />
+        </Form>
+      </Modal>
     </Card>
   );
 };

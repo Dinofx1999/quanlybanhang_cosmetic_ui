@@ -59,7 +59,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       { path: "/orders", icon: FileText, label: "Đơn Hàng" },
       { path: "/products", icon: Inbox, label: "Sản Phẩm" },
       { path: "/inventory", icon: Package, label: "Kiểm Kho" },
-      { path: "/staff", icon: Users, label: "Nhân Viên" },
+      { path: "/customers", icon: Users, label: "Khách Hàng" },
       { path: "/shop-settings", icon: Store, label: "Thông Tin Cửa Hàng" },
     ],
     []
@@ -69,7 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const closeSidebar = () => setIsOpen(false);
 
   const userLabel =
-    currentUser?.name?.trim() || currentUser?.username?.trim() || "Nhân viên";
+    currentUser?.name?.trim() || currentUser?.username?.trim() || "Khách Hàng";
 
   const roleLabel = currentUser?.role ? String(currentUser.role) : "STAFF";
 
