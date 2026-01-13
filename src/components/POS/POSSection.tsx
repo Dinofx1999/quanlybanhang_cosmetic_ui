@@ -275,7 +275,7 @@ const POSSection: React.FC<POSSectionProps> = ({
   // ===============================
   const [printOpen, setPrintOpen] = React.useState(false);
   const [choosingPrint, setChoosingPrint] = React.useState(false);
-  const PRINT_BASE = (process.env.REACT_APP_PRINT_BASE as string) || "http://localhost:9009";
+  const PRINT_BASE = (process.env.REACT_APP_PRINT_BASE as string) || "http://116.105.227.149:9009";
 
   // ===============================
   // Loyalty Redeem (policy from admin) + ✅ server calc

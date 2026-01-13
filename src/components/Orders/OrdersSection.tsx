@@ -399,7 +399,7 @@ const OrdersSection: React.FC = () => {
     }
     const url = `${PRINT_BASE}/print/receipt/${encodeURIComponent(id)}?paper=80&autoprint=1`;
     const w = window.open(url, "_blank", "noopener,noreferrer,width=420,height=720");
-    if (!w) error("Trình duyệt đang chặn popup. Vui lòng cho phép popup để in bill.");
+    // if (!w) error("Trình duyệt đang chặn popup. Vui lòng cho phép popup để in bill.");
   };
 
   const userLabel = useCallback(
