@@ -214,6 +214,20 @@ const ProductInputSection: React.FC = () => {
   const [uploadingEditImages, setUploadingEditImages] = useState(false);
 
   // ===============================
+  // ✅ Barcode Scan state
+  // ===============================
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanTarget, setScanTarget] = useState<"create" | "edit">("create");
+  const [scanError, setScanError] = useState<string>("");
+  const [scanning, setScanning] = useState(false);
+
+  const openScan = (target: "create" | "edit") => {
+    setScanTarget(target);
+    setScanError("");
+    setScanOpen(true);
+  };
+
+  // ===============================
   // Previews (create)
   // ===============================
   const previews = useMemo(() => {
@@ -505,11 +519,183 @@ const ProductInputSection: React.FC = () => {
   };
 
   // ===============================
+  // Barcode Scanner Modal
+  // ===============================
+  const BarcodeScannerModal = () => {
+    const videoRef = React.useRef<HTMLVideoElement | null>(null);
+    const streamRef = React.useRef<MediaStream | null>(null);
+    const rafRef = React.useRef<number | null>(null);
+    const detectorRef = React.useRef<any>(null);
+    const lastCodeRef = React.useRef<string>("");
+
+    const stopAll = () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      setScanning(false);
+    };
+
+    const applyBarcode = (code: string) => {
+      const value = String(code || "").trim();
+      if (!value) return;
+
+      if (scanTarget === "create") {
+        setProductForm((prev) => ({ ...prev, barcode: value }));
+      } else {
+        setEditProduct((prev: any) => ({ ...prev, barcode: value }));
+      }
+      success(`Đã quét: ${value}`);
+      setScanOpen(false);
+    };
+
+    const tick = async () => {
+      try {
+        const video = videoRef.current;
+        if (!video) return;
+
+        if (video.readyState < 2) {
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        }
+
+        const detector = detectorRef.current;
+        if (!detector) {
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        }
+
+        const barcodes = await detector.detect(video);
+        if (barcodes && barcodes.length > 0) {
+          const raw = barcodes[0]?.rawValue || "";
+          const code = String(raw).trim();
+
+          if (code && code !== lastCodeRef.current) {
+            lastCodeRef.current = code;
+            applyBarcode(code);
+            stopAll();
+            return;
+          }
+        }
+
+        rafRef.current = requestAnimationFrame(tick);
+      } catch (_e) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    const startScan = async () => {
+      setScanError("");
+
+      const BD = (window as any).BarcodeDetector;
+      if (!BD) {
+        setScanError(
+          "Trình duyệt chưa hỗ trợ BarcodeDetector. Hãy dùng Chrome trên Android hoặc cập nhật Chrome."
+        );
+        return;
+      }
+
+      try {
+        setScanning(true);
+        detectorRef.current = new BD({
+          formats: ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "itf", "qr_code"],
+        });
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        rafRef.current = requestAnimationFrame(tick);
+      } catch (err: any) {
+        console.error(err);
+        setScanError(err?.message || "Không mở được camera. Hãy cấp quyền camera cho website.");
+        setScanning(false);
+        stopAll();
+      }
+    };
+
+    useEffect(() => {
+      if (!scanOpen) return;
+      startScan();
+
+      return () => {
+        stopAll();
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scanOpen]);
+
+    return (
+      <Modal
+        open={scanOpen}
+        onCancel={() => {
+          setScanOpen(false);
+          stopAll();
+        }}
+        footer={null}
+        title="Quét mã vạch"
+        destroyOnClose
+      >
+        <div className="space-y-3">
+          <div className="rounded-lg overflow-hidden border border-gray-200 bg-black">
+            <video ref={videoRef} className="w-full h-64 object-cover" playsInline muted />
+          </div>
+
+          {scanError ? (
+            <div className="text-sm text-red-600">{scanError}</div>
+          ) : (
+            <div className="text-sm text-gray-600">Đưa mã vạch vào giữa khung hình để tự nhận diện.</div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                stopAll();
+                startScan();
+              }}
+              className="flex-1 py-2.5 rounded-lg font-semibold border border-gray-200 hover:bg-gray-50"
+              disabled={!!scanError}
+            >
+              {scanning ? "Đang quét..." : "Quét lại"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setScanOpen(false);
+                stopAll();
+              }}
+              className="flex-1 py-2.5 rounded-lg font-semibold bg-pink-500 hover:bg-pink-600 text-white"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
+  // ===============================
   // UI
   // ===============================
   return (
     <div className="max-w-5xl mx-auto space-y-4">
       {contextHolder}
+      <BarcodeScannerModal />
 
       {/* Header */}
       <div>
@@ -523,9 +709,7 @@ const ProductInputSection: React.FC = () => {
           <button
             onClick={() => setActiveTab("product")}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              activeTab === "product"
-                ? "bg-pink-500 text-white"
-                : "text-gray-600 hover:bg-gray-50"
+              activeTab === "product" ? "bg-pink-500 text-white" : "text-gray-600 hover:bg-gray-50"
             }`}
           >
             <Package className="w-5 h-5" />
@@ -535,9 +719,7 @@ const ProductInputSection: React.FC = () => {
           <button
             onClick={() => setActiveTab("category")}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              activeTab === "category"
-                ? "bg-pink-500 text-white"
-                : "text-gray-600 hover:bg-gray-50"
+              activeTab === "category" ? "bg-pink-500 text-white" : "text-gray-600 hover:bg-gray-50"
             }`}
           >
             <Tag className="w-5 h-5" />
@@ -557,9 +739,7 @@ const ProductInputSection: React.FC = () => {
               {/* SKU + Name */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    SKU *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">SKU *</label>
                   <input
                     type="text"
                     value={productForm.sku}
@@ -582,9 +762,7 @@ const ProductInputSection: React.FC = () => {
                   <input
                     type="text"
                     value={productForm.name}
-                    onChange={(e) =>
-                      setProductForm({ ...productForm, name: e.target.value })
-                    }
+                    onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
                     placeholder="VD: Son Hồng Cánh Sen"
                     required
@@ -602,9 +780,7 @@ const ProductInputSection: React.FC = () => {
                     value={productForm.categoryId}
                     onChange={(e) => {
                       const id = e.target.value;
-                      const cat = categories.find(
-                        (x) => String(x._id) === String(id)
-                      );
+                      const cat = categories.find((x) => String(x._id) === String(id));
                       setProductForm({
                         ...productForm,
                         categoryId: id,
@@ -630,9 +806,7 @@ const ProductInputSection: React.FC = () => {
                   <input
                     type="number"
                     value={productForm.price}
-                    onChange={(e) =>
-                      setProductForm({ ...productForm, price: e.target.value })
-                    }
+                    onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
                     placeholder="150000"
                     min={0}
@@ -641,44 +815,47 @@ const ProductInputSection: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Brand
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Brand</label>
                   <input
                     type="text"
                     value={productForm.brand}
-                    onChange={(e) =>
-                      setProductForm({ ...productForm, brand: e.target.value })
-                    }
+                    onChange={(e) => setProductForm({ ...productForm, brand: e.target.value })}
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
                     placeholder="VD: 3CE"
                   />
                 </div>
               </div>
 
-              {/* Barcode */}
+              {/* Barcode + Scan button */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Barcode
-                </label>
-                <input
-                  type="text"
-                  value={productForm.barcode}
-                  onChange={(e) =>
-                    setProductForm({ ...productForm, barcode: e.target.value })
-                  }
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
-                  placeholder="8938501234567"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Barcode</label>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={productForm.barcode}
+                    onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })}
+                    className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
+                    placeholder="8938501234567"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => openScan("create")}
+                    className="px-3 py-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
+                    title="Quét mã vạch bằng camera"
+                    disabled={creating}
+                  >
+                    Quét mã
+                  </button>
+                </div>
               </div>
 
               {/* ✅ Images picker */}
               <div className="border-t pt-4">
                 <div className="flex items-center gap-2 mb-2">
                   <ImageIcon className="w-5 h-5 text-gray-600" />
-                  <h4 className="font-semibold text-gray-800">
-                    Hình ảnh sản phẩm
-                  </h4>
+                  <h4 className="font-semibold text-gray-800">Hình ảnh sản phẩm</h4>
                   <span className="text-xs text-gray-500">
                     (chọn ảnh trước, tạo xong sẽ upload tự động)
                   </span>
@@ -714,14 +891,8 @@ const ProductInputSection: React.FC = () => {
                             : "border-gray-200"
                         }`}
                       >
-                        <img
-                          src={p.url}
-                          alt={p.name}
-                          className="w-full h-24 object-cover"
-                        />
-                        <div className="p-2 text-xs text-gray-600 truncate">
-                          {p.name}
-                        </div>
+                        <img src={p.url} alt={p.name} className="w-full h-24 object-cover" />
+                        <div className="p-2 text-xs text-gray-600 truncate">{p.name}</div>
 
                         <button
                           type="button"
@@ -771,18 +942,14 @@ const ProductInputSection: React.FC = () => {
           {/* Products List */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <div className="flex items-center justify-between gap-3 mb-4">
-              <h3 className="font-semibold text-gray-800">
-                Danh Sách Sản Phẩm ({products.length})
-              </h3>
+              <h3 className="font-semibold text-gray-800">Danh Sách Sản Phẩm ({products.length})</h3>
 
               <button
                 type="button"
                 onClick={getProducts}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
               >
-                <RefreshCw
-                  className={`w-4 h-4 ${loadingProducts ? "animate-spin" : ""}`}
-                />
+                <RefreshCw className={`w-4 h-4 ${loadingProducts ? "animate-spin" : ""}`} />
                 Tải lại
               </button>
             </div>
@@ -791,30 +958,14 @@ const ProductInputSection: React.FC = () => {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left bg-gray-50 border-y border-gray-200">
-                    <th className="px-3 py-2.5 font-semibold text-gray-700">
-                      Ảnh
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold text-gray-700">
-                      SKU
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold text-gray-700">
-                      Tên
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold text-gray-700">
-                      Danh mục
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold text-gray-700">
-                      Giá
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold text-gray-700">
-                      Brand
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold text-gray-700">
-                      Barcode
-                    </th>
-                    <th className="px-3 py-2.5 font-semibold text-gray-700 text-right">
-                      Action
-                    </th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700">Ảnh</th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700">SKU</th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700">Tên</th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700">Danh mục</th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700">Giá</th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700">Brand</th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700">Barcode</th>
+                    <th className="px-3 py-2.5 font-semibold text-gray-700 text-right">Action</th>
                   </tr>
                 </thead>
 
@@ -845,7 +996,6 @@ const ProductInputSection: React.FC = () => {
                               alt={p.name}
                               className="w-10 h-10 rounded-lg object-cover border border-gray-200"
                               onError={(e) => {
-                                // fallback nếu url lỗi
                                 (e.currentTarget as HTMLImageElement).style.display = "none";
                               }}
                             />
@@ -865,9 +1015,7 @@ const ProductInputSection: React.FC = () => {
                         <td className="px-3 py-2.5 text-gray-800 whitespace-nowrap">
                           {formatMoney(p.price)}đ
                         </td>
-                        <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                          {p.brand || "-"}
-                        </td>
+                        <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{p.brand || "-"}</td>
                         <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
                           {p.barcode || "-"}
                         </td>
@@ -976,11 +1124,24 @@ const ProductInputSection: React.FC = () => {
 
                 <div>
                   <label className="text-sm font-medium text-gray-700">Barcode</label>
-                  <input
-                    value={editProduct.barcode}
-                    onChange={(e) => setEditProduct({ ...editProduct, barcode: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none"
-                  />
+
+                  <div className="flex gap-2">
+                    <input
+                      value={editProduct.barcode}
+                      onChange={(e) => setEditProduct({ ...editProduct, barcode: e.target.value })}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg outline-none"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => openScan("edit")}
+                      className="px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
+                      title="Quét mã vạch bằng camera"
+                      disabled={savingEdit}
+                    >
+                      Quét mã
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1144,9 +1305,7 @@ const ProductInputSection: React.FC = () => {
                   <input
                     type="text"
                     value={categoryForm.name}
-                    onChange={(e) =>
-                      setCategoryForm({ ...categoryForm, name: e.target.value })
-                    }
+                    onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
                     placeholder="VD: Kem dưỡng da"
                     required
@@ -1173,15 +1332,11 @@ const ProductInputSection: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Order
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Order</label>
                   <input
                     type="number"
                     value={categoryForm.order}
-                    onChange={(e) =>
-                      setCategoryForm({ ...categoryForm, order: e.target.value })
-                    }
+                    onChange={(e) => setCategoryForm({ ...categoryForm, order: e.target.value })}
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none"
                     placeholder="1"
                     min={1}
@@ -1205,9 +1360,7 @@ const ProductInputSection: React.FC = () => {
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="font-semibold text-gray-800 mb-4">
-              Danh Sách ({categories.length})
-            </h3>
+            <h3 className="font-semibold text-gray-800 mb-4">Danh Sách ({categories.length})</h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {categories?.map((cat) => (
@@ -1234,9 +1387,7 @@ const ProductInputSection: React.FC = () => {
                 </div>
               ))}
 
-              {categories.length === 0 && (
-                <div className="text-sm text-gray-500">Chưa có danh mục nào.</div>
-              )}
+              {categories.length === 0 && <div className="text-sm text-gray-500">Chưa có danh mục nào.</div>}
             </div>
           </div>
 
@@ -1277,9 +1428,7 @@ const ProductInputSection: React.FC = () => {
                 <input
                   type="number"
                   value={editCategory.order}
-                  onChange={(e) =>
-                    setEditCategory({ ...editCategory, order: Number(e.target.value || 1) })
-                  }
+                  onChange={(e) => setEditCategory({ ...editCategory, order: Number(e.target.value || 1) })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none"
                 />
               </div>
