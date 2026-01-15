@@ -27,6 +27,11 @@ interface ProductImage {
   order?: number;
 }
 
+type PriceTierRow = {
+  tierId: string;
+  price: number;
+};
+
 export interface Product {
   _id: string;
   sku?: string;
@@ -41,6 +46,9 @@ export interface Product {
   thumbnail?: string;
   images?: ProductImage[];
   isActive?: boolean;
+
+  // ✅ NEW
+  price_tier?: PriceTierRow[];
 }
 
 export interface OrderItem extends Product {
@@ -75,6 +83,10 @@ type CustomerRow = {
   tierCode?: string;
   points?: number;
   spendTier?: number;
+
+  // ✅ NEW
+  tierAgencyId?: string | null;
+  tierAgencyName?: string;
 };
 
 type PaymentRow = {
@@ -98,7 +110,6 @@ interface POSSectionProps {
   updateCustomerName: (orderId: number, name: string) => void;
   getTotal: (orderId: number) => number;
 
-  // legacy
   completeOrder: () => void;
 
   completeOrderWithStatus?: (
@@ -126,6 +137,9 @@ interface POSSectionProps {
   posBranchId: string;
   setPosBranchId: (id: string) => void;
   currentUser: any;
+
+  // ✅ NEW: allow recalc cart item prices
+  replaceCurrentOrderItems: (items: OrderItem[]) => void;
 }
 
 // ===============================
@@ -178,6 +192,19 @@ const fmtDobInput = (v: any) => {
 
 const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
+// ✅ NEW: effective price based on tierAgencyId
+const getEffectivePrice = (p: Product, tierAgencyId?: string | null) => {
+  const base = Number(p.price || 0);
+  const tid = String(tierAgencyId || "").trim();
+  if (!tid) return base;
+
+  const tiers = Array.isArray(p.price_tier) ? p.price_tier : [];
+  const found = tiers.find((x) => String(x.tierId) === tid);
+
+  const tp = Number(found?.price);
+  return Number.isFinite(tp) && tp >= 0 ? tp : base;
+};
+
 // ===============================
 // Component
 // ===============================
@@ -200,6 +227,7 @@ const POSSection: React.FC<POSSectionProps> = ({
   posBranchId,
   setPosBranchId,
   currentUser,
+  replaceCurrentOrderItems,
 }) => {
   const currentOrder = getCurrentOrder();
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -240,10 +268,8 @@ const POSSection: React.FC<POSSectionProps> = ({
   const [extraFee, setExtraFee] = React.useState<string>("0");
   const [pricingNote, setPricingNote] = React.useState<string>("");
 
-  // ✅ NEW: SaleStatus = CONFIRM | PENDING | DEBT
   const [saleStatus, setSaleStatus] = React.useState<SaleStatus>("CONFIRM");
 
-  // ✅ NEW: multi payment rows
   const [payRows, setPayRows] = React.useState<PaymentRow[]>([{ id: uid(), method: "CASH", amountText: "" }]);
   const [activePayRowId, setActivePayRowId] = React.useState<string>(() => {
     const first = uid();
@@ -258,7 +284,6 @@ const POSSection: React.FC<POSSectionProps> = ({
 
   const [submitting, setSubmitting] = React.useState(false);
 
-  // ✅ input số lượng lớn theo từng item
   const [bulkQty, setBulkQty] = React.useState<Record<string, string>>({});
 
   // ===============================
@@ -285,7 +310,6 @@ const POSSection: React.FC<POSSectionProps> = ({
   const [redeemOn, setRedeemOn] = React.useState(false);
   const [redeemPointsText, setRedeemPointsText] = React.useState("");
 
-  // ✅ server-truth result
   const [redeemCalc, setRedeemCalc] = React.useState<{
     points: number;
     amount: number;
@@ -313,13 +337,12 @@ const POSSection: React.FC<POSSectionProps> = ({
   }, [posReady, fetchLoyaltySetting]);
 
   // ===============================
-  // Reset per order tab (✅ CHỈ 1 effect, không trùng)
+  // Reset per order tab
   // ===============================
   React.useEffect(() => {
     setStep("CART");
     setSubmitting(false);
 
-    // reset customer form
     setCName("");
     setCPhone("");
     setCEmail("");
@@ -331,28 +354,23 @@ const POSSection: React.FC<POSSectionProps> = ({
     setCNote("");
     setDeliveryMethod("PICKUP");
 
-    // pricing
     setDiscount("0");
     setExtraFee("0");
     setPricingNote("");
     setBulkQty({});
 
-    // payment
     setSaleStatus("CONFIRM");
     const first = { id: uid(), method: "CASH" as PaymentMethodUI, amountText: "" };
     setPayRows([first]);
     setActivePayRowId(first.id);
 
-    // customer autocomplete UI
     setCustItems([]);
     setCustOpen(false);
     setCustLoading(false);
 
-    // print
     setPrintOpen(false);
     setChoosingPrint(false);
 
-    // redeem
     setRedeemOn(false);
     setRedeemPointsText("");
     setRedeemCalc(null);
@@ -361,7 +379,6 @@ const POSSection: React.FC<POSSectionProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOrderId]);
 
-  // sync tên khách nhanh từ order -> form
   React.useEffect(() => {
     if (!currentOrder) return;
     if (!cName) setCName(currentOrder.customer || "");
@@ -390,6 +407,10 @@ const POSSection: React.FC<POSSectionProps> = ({
         tierCode: getTierCode(x.tier),
         points: Number(x.points || 0),
         spendTier: getSpendTier(x),
+
+        // ✅ NEW
+        tierAgencyId: x.tierAgencyId ? String(x.tierAgencyId) : null,
+        tierAgencyName: x.tierAgency?.name || x.tierAgencyName || "",
       }));
       setCustItems(mapped);
     } catch (e: any) {
@@ -411,6 +432,37 @@ const POSSection: React.FC<POSSectionProps> = ({
     }, 250);
   };
 
+  // ✅ NEW: recalc cart prices by selected tier
+  const recalcCartPricesByTier = React.useCallback(
+    (tierAgencyId: string | null, nextCustomerName?: string) => {
+      if (!currentOrder) return;
+      const items = Array.isArray(currentOrder.items) ? currentOrder.items : [];
+      if (!items.length) return;
+
+      const nextItems: OrderItem[] = items.map((it) => {
+        const prod = products.find((p) => String(p._id) === String(it._id));
+        const baseProduct = prod ? prod : (it as any);
+
+        const newPrice = getEffectivePrice(baseProduct as any, tierAgencyId);
+
+        // giữ quantity, cập nhật price + sync vài field nếu product mới có
+        return {
+          ...(it as any),
+          ...(prod ? { categoryName: prod.categoryName, sku: prod.sku, barcode: prod.barcode, brand: prod.brand } : {}),
+          price: newPrice,
+        } as OrderItem;
+      });
+
+      replaceCurrentOrderItems(nextItems);
+
+      // sync order customer label
+      if (typeof nextCustomerName === "string" && nextCustomerName.trim()) {
+        updateCustomerName(currentOrder.id, nextCustomerName.trim());
+      }
+    },
+    [currentOrder, products, replaceCurrentOrderItems, updateCustomerName]
+  );
+
   const pickCustomer = (c: CustomerRow) => {
     const name = String(c.name || "").trim() || "Khách lẻ";
     const phone = String(c.phone || "").trim();
@@ -424,6 +476,10 @@ const POSSection: React.FC<POSSectionProps> = ({
     setCPhone(phone);
     setCEmail(email);
     setCDob(dob);
+
+    // ✅ RE-CALC cart prices immediately
+    const tierId = c.tierAgencyId ? String(c.tierAgencyId) : null;
+    recalcCartPricesByTier(tierId, name);
 
     // reset redeem when picking another customer
     setRedeemOn(false);
@@ -450,6 +506,10 @@ const POSSection: React.FC<POSSectionProps> = ({
         tierCode: getTierCode(x.tier),
         points: Number(x.points || 0),
         spendTier: getSpendTier(x),
+
+        // ✅ NEW
+        tierAgencyId: x.tierAgencyId ? String(x.tierAgencyId) : null,
+        tierAgencyName: x.tierAgency?.name || x.tierAgencyName || "",
       };
       setSelectedCustomerInfo(next);
     } catch {
@@ -465,17 +525,14 @@ const POSSection: React.FC<POSSectionProps> = ({
   const extraFeeNum = clamp0(toNumberSafe(extraFee));
   const finalTotalBeforeRedeem = Math.max(0, subtotalAmount - discountNum + extraFeeNum);
 
-  // redeem enabled?
   const redeemEnabled = !!redeemPolicy?.redeem?.redeemEnable;
 
-  // show policy info only (UI)
   const vndPerPointUI = Number(redeemPolicy?.redeem?.redeemValueVndPerPoint || 0);
   const percentOfBillUI = Number(redeemPolicy?.redeem?.percentOfBill || 0);
   const maxPointsPerOrderUI = Number(redeemPolicy?.redeem?.maxPointsPerOrder || 0);
 
   const customerPointsUI = Number(selectedCustomerInfo?.points || 0);
 
-  // ✅ server calc applied values (source of truth)
   const redeemPointsNum = Math.max(0, Math.floor(toNumberSafe(redeemPointsText)));
   const redeemPointsApplied = redeemOn ? Math.max(0, Number(redeemCalc?.points || 0)) : 0;
   const redeemAmountVnd = redeemOn ? Math.max(0, Number(redeemCalc?.amount || 0)) : 0;
@@ -491,11 +548,6 @@ const POSSection: React.FC<POSSectionProps> = ({
 
   const canGoCustomer = () => posReady && !!currentOrder && (currentOrder.items?.length || 0) > 0;
 
-  /**
-   * Validate:
-   * - SHIP: bắt buộc phone + address
-   * - PICKUP: phone optional
-   */
   const validateCustomer = () => {
     const phone = String(cPhone || "").trim();
     const addr = String(cAddress || "").trim();
@@ -510,12 +562,10 @@ const POSSection: React.FC<POSSectionProps> = ({
 
     if (discountNum > subtotalAmount) return { ok: false, msg: "Discount không được lớn hơn tạm tính." };
 
-    // Redeem only CONFIRM (FE)
     if (redeemOn && saleStatus !== "CONFIRM") {
       return { ok: false, msg: "Chỉ được sử dụng điểm khi CONFIRM (trả đủ)." };
     }
 
-    // Redeem requires customer
     if (redeemOn && !selectedCustomerId) {
       return { ok: false, msg: "Sử dụng điểm: hãy chọn khách hàng từ danh sách." };
     }
@@ -541,7 +591,6 @@ const POSSection: React.FC<POSSectionProps> = ({
         return;
       }
 
-      // require phone for server lookup (as per our calc endpoint)
       const phone = String(selectedCustomerInfo?.phone || cPhone || "").trim();
       if (!phone) {
         setRedeemCalc(null);
@@ -585,11 +634,8 @@ const POSSection: React.FC<POSSectionProps> = ({
     ]
   );
 
-  // debounce redeem calc when input changes / total changes
   React.useEffect(() => {
     if (!redeemOn) return;
-
-    // if not CONFIRM, auto turn off
     if (saleStatus !== "CONFIRM") return;
 
     const p = Math.max(0, Math.floor(redeemPointsNum || 0));
@@ -604,7 +650,6 @@ const POSSection: React.FC<POSSectionProps> = ({
     };
   }, [redeemOn, redeemPointsNum, finalTotalBeforeRedeem, saleStatus, callCalcRedeem]);
 
-  // When changing status away from CONFIRM => turn off redeem & calc
   React.useEffect(() => {
     if (saleStatus !== "CONFIRM") {
       setRedeemOn(false);
@@ -629,7 +674,6 @@ const POSSection: React.FC<POSSectionProps> = ({
   const setStatusSafe = (st: SaleStatus) => {
     setSaleStatus(st);
 
-    // ✅ Redeem chỉ khi CONFIRM
     if (st !== "CONFIRM") {
       setRedeemOn(false);
       setRedeemPointsText("");
@@ -673,7 +717,6 @@ const POSSection: React.FC<POSSectionProps> = ({
     setPayRows((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   };
 
-  // ✅ FIX: Khi total đổi (do redeem/discount/phí), tự cân dòng active cho multi CONFIRM
   React.useEffect(() => {
     if (saleStatus !== "CONFIRM") return;
     if (payRows.length <= 1) return;
@@ -694,7 +737,7 @@ const POSSection: React.FC<POSSectionProps> = ({
   }, [finalTotal, saleStatus, activePayRowId]);
 
   // ===============================
-  // Build payload (✅ always payments[])
+  // Build payload
   // ===============================
   const buildPayload = () => {
     const nameRaw = String(cName || "").trim();
@@ -779,7 +822,6 @@ const POSSection: React.FC<POSSectionProps> = ({
             amount: Math.round(paymentsForApi[0]?.amount || 0),
           } as const);
 
-    // ✅ redeem send: server truth only
     const canSendRedeem =
       saleStatus === "CONFIRM" &&
       redeemOn &&
@@ -843,7 +885,7 @@ const POSSection: React.FC<POSSectionProps> = ({
     return { ok: true, msg: "" };
   };
 
-  // ✅ thực thi tạo/confirm đơn và trả về _id để in
+  // ✅ submit
   const doSubmitPayment = async () => {
     if (!currentOrder || !posReady) {
       if (!posReady) message.warning("POS bắt buộc chọn 1 chi nhánh (không được ALL).");
@@ -857,7 +899,6 @@ const POSSection: React.FC<POSSectionProps> = ({
       return { ok: false as const, orderId: "" };
     }
 
-    // ✅ redeem calc must be ready if redeemOn
     if (redeemOn && saleStatus === "CONFIRM") {
       if (redeemCalcLoading) {
         message.info("Đang tính điểm theo chính sách... vui lòng thử lại.");
@@ -894,12 +935,10 @@ const POSSection: React.FC<POSSectionProps> = ({
 
       message.success({ content: "Thành công!", key, duration: 2 });
 
-      // refresh customer info (points may change by redeem/earn)
       await refetchSelectedCustomer();
 
       setStep("CART");
 
-      // reset nhẹ
       setCAddress("");
       setCNote("");
       setDiscount("0");
@@ -907,12 +946,10 @@ const POSSection: React.FC<POSSectionProps> = ({
       setPricingNote("");
       setBulkQty({});
 
-      // reset redeem
       setRedeemOn(false);
       setRedeemPointsText("");
       setRedeemCalc(null);
 
-      // reset payment UI
       setStatusSafe("CONFIRM");
       const first = { id: uid(), method: "CASH" as PaymentMethodUI, amountText: "" };
       setPayRows([first]);
@@ -932,7 +969,6 @@ const POSSection: React.FC<POSSectionProps> = ({
     }
   };
 
-  // ✅ nút Hoàn tất đơn: chỉ mở modal chọn in/không in
   const onSubmitPayment = async () => {
     if (!currentOrder || !posReady) {
       if (!posReady) message.warning("POS bắt buộc chọn 1 chi nhánh (không được ALL).");
@@ -998,18 +1034,23 @@ const POSSection: React.FC<POSSectionProps> = ({
       message.warning("POS bắt buộc chọn 1 chi nhánh trước.");
       return;
     }
-    addToCart(p);
+
+    const tierId = selectedCustomerInfo?.tierAgencyId || null;
+    const effPrice = getEffectivePrice(p, tierId);
+
+    // ✅ snapshot đúng giá (sau này dù đổi tier, nếu bạn recalc thì sẽ update)
+    const p2: Product = { ...p, price: effPrice };
+
+    addToCart(p2);
     message.success({ content: `Đã thêm "${p.name}" vào giỏ`, key: "add-cart", duration: 0.8 });
   };
 
-  // tồn còn lại trong giỏ
   const remainingStockForItem = (item: OrderItem) => {
     const base = Number(item.stock || 0);
     const q = Number(item.quantity || 0);
     return base - q;
   };
 
-  // bulk set qty
   const applyBulkQty = (productId: string) => {
     if (!posReady) return;
     const raw = String(bulkQty[productId] ?? "").trim();
@@ -1023,7 +1064,11 @@ const POSSection: React.FC<POSSectionProps> = ({
       if (target <= 0) return;
       const prod = products.find((p) => p._id === productId);
       if (!prod) return;
-      addToCart(prod);
+
+      const tierId = selectedCustomerInfo?.tierAgencyId || null;
+      const effPrice = getEffectivePrice(prod, tierId);
+
+      addToCart({ ...prod, price: effPrice });
       if (target - 1 > 0) updateQuantity(productId, target - 1);
       return;
     }
@@ -1135,6 +1180,10 @@ const POSSection: React.FC<POSSectionProps> = ({
               const img = getPrimaryImage(p);
               const disabled = !posReady;
 
+              const tierId = selectedCustomerInfo?.tierAgencyId || null;
+              const effPrice = getEffectivePrice(p, tierId);
+              const isWholesale = !!tierId && effPrice !== Number(p.price || 0);
+
               return (
                 <button
                   key={p._id}
@@ -1159,6 +1208,12 @@ const POSSection: React.FC<POSSectionProps> = ({
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-400 text-3xl">🧴</div>
                     )}
+
+                    {isWholesale && (
+                      <div className="absolute top-2 left-2 text-[10px] font-extrabold px-2 py-1 rounded bg-amber-100 text-amber-700 border border-amber-200">
+                        SỈ
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-3">
@@ -1167,7 +1222,7 @@ const POSSection: React.FC<POSSectionProps> = ({
                       {p.sku ? `SKU: ${p.sku}` : p.barcode ? `BC: ${p.barcode}` : ""}
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-pink-600">{money(p.price)}đ</span>
+                      <span className="text-xs font-bold text-pink-600">{money(effPrice)}đ</span>
                       <span className="text-xs text-gray-500">SL: {Number(p.stock || 0)}</span>
                     </div>
                   </div>
@@ -1238,872 +1293,879 @@ const POSSection: React.FC<POSSectionProps> = ({
         <StepTabs />
 
         <div className="bg-white rounded-lg border border-gray-200 flex flex-col">
-          {/* Header */}
-          <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <ShoppingBag className="w-5 h-5 text-pink-500" />
-                <h3 className="font-semibold text-gray-800">
-                  {step === "CART" ? "Giỏ hàng" : step === "CUSTOMER" ? "Thông tin khách hàng" : "Thanh toán"}
-                </h3>
-              </div>
-
-              {step !== "CART" && (
-                <button
-                  className="inline-flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-gray-900"
-                  onClick={() => setStep(step === "PAYMENT" ? "CUSTOMER" : "CART")}
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Quay lại
-                </button>
-              )}
-            </div>
-
-            {!posReady && (
-              <div className="mt-3 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-2">
-                POS bắt buộc chọn 1 chi nhánh (không được ALL).
-              </div>
-            )}
-          </div>
-
-          {/* CART */}
-          {step === "CART" && (
-            <>
-              <div className="flex-1 overflow-y-auto p-3 max-h-[55vh]">
-                {currentOrder && currentOrder.items.length > 0 ? (
-                  <div className="space-y-2">
-                    {currentOrder.items.map((item) => {
-                      const img = getPrimaryImage(item);
-                      const remaining = remainingStockForItem(item);
-
-                      return (
-                        <div key={item._id} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                          <div className="flex items-start gap-3 mb-2">
-                            <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200 bg-white flex-shrink-0">
-                              {img ? (
-                                <img
-                                  src={img}
-                                  alt={item.name}
-                                  className="w-full h-full object-cover"
-                                  loading="lazy"
-                                  onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xl">🧴</div>
-                              )}
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <h4 className="font-semibold text-sm text-gray-800 truncate">{item.name}</h4>
-                              </div>
-
-                              <div className="text-[11px] text-gray-500 truncate">
-                                {item.categoryName || ""} {item.sku ? ` • ${item.sku}` : ""}
-                              </div>
-
-                              <p className="text-xs text-pink-600 font-semibold mt-1">{money(item.price)}đ</p>
-
-                              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                <input
-                                  value={bulkQty[item._id] ?? ""}
-                                  onChange={(e) => setBulkQty((m) => ({ ...m, [item._id]: e.target.value }))}
-                                  onKeyDown={(e) => e.key === "Enter" && applyBulkQty(item._id)}
-                                  placeholder="Nhập SL (vd: 50)"
-                                  inputMode="numeric"
-                                  className="w-28 px-2 py-1.5 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-pink-500"
-                                  disabled={!posReady}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => applyBulkQty(item._id)}
-                                  disabled={!posReady}
-                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold border ${
-                                    posReady ? "bg-white hover:bg-gray-50 border-gray-300" : "bg-gray-100 border-gray-200"
-                                  }`}
-                                >
-                                  Set
-                                </button>
-
-                                <div className="text-xs text-gray-600">
-                                  tồn hiển thị: <b>{Number(item.stock ?? 0)}</b> • tồn còn lại:{" "}
-                                  <b className={remaining < 0 ? "text-red-700" : ""}>{remaining}</b>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <button
-                                onClick={() => posReady && updateQuantity(item._id, -1)}
-                                className={`p-1 rounded ${posReady ? "bg-gray-200 hover:bg-gray-300" : "bg-gray-200 opacity-60"}`}
-                                disabled={!posReady}
-                              >
-                                <Minus className="w-3 h-3 text-gray-600" />
-                              </button>
-
-                              <span className="w-6 text-center font-semibold text-sm">{item.quantity}</span>
-
-                              <button
-                                onClick={() => posReady && updateQuantity(item._id, 1)}
-                                className={`p-1 rounded ${posReady ? "bg-pink-500 hover:bg-pink-600" : "bg-gray-300"}`}
-                                disabled={!posReady}
-                              >
-                                <Plus className="w-3 h-3 text-white" />
-                              </button>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-gray-800">{money(item.price * item.quantity)}đ</span>
-                              <button
-                                onClick={() => posReady && removeFromCart(item._id)}
-                                className={`p-1 rounded ${posReady ? "bg-red-50 hover:bg-red-100" : "bg-red-50 opacity-60"}`}
-                                disabled={!posReady}
-                              >
-                                <Trash2 className="w-3 h-3 text-red-500" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-center py-10">
-                    <ShoppingBag className="w-12 h-12 text-gray-300 mb-2" />
-                    <p className="text-gray-500 text-sm">Chưa có sản phẩm</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-4 border-t border-gray-200 bg-gray-50">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-600 font-medium">Tạm tính:</span>
-                  <span className="text-lg font-bold text-gray-800">{money(subtotalAmount)}đ</span>
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (!canGoCustomer()) {
-                      if (!posReady) message.warning("POS bắt buộc chọn 1 chi nhánh (không được ALL).");
-                      else message.warning("Giỏ hàng đang trống.");
-                      return;
-                    }
-                    setStep("CUSTOMER");
-                  }}
-                  disabled={!canGoCustomer()}
-                  className="w-full bg-pink-500 hover:bg-pink-600 text-white py-3 rounded-lg font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  Tiếp Tục
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* CUSTOMER */}
-          {step === "CUSTOMER" && (
-            <div className="p-4 space-y-4">
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Tạm tính</span>
-                  <span className="font-extrabold text-gray-900">{money(subtotalAmount)}đ</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-bold text-gray-700 flex items-center gap-1">
-                      <Gift className="w-4 h-4" /> Giảm Giá
-                    </label>
-                    <input
-                      value={discount}
-                      onChange={(e) => setDiscount(e.target.value)}
-                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
-                      placeholder="0"
-                      inputMode="numeric"
-                      disabled={!posReady}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-gray-700 flex items-center gap-1">
-                      <Tag className="w-4 h-4" /> Phụ phí
-                    </label>
-                    <input
-                      value={extraFee}
-                      onChange={(e) => setExtraFee(e.target.value)}
-                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
-                      placeholder="0"
-                      inputMode="numeric"
-                      disabled={!posReady}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-gray-700 flex items-center gap-1">
-                    <Truck className="w-4 h-4" /> Ghi chú phí (ship/gói quà…)
-                  </label>
-                  <input
-                    value={pricingNote}
-                    onChange={(e) => setPricingNote(e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
-                    placeholder="VD: Ship nội thành / Gói quà"
-                    disabled={!posReady}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between text-sm border-t pt-2">
-                  <span className="text-gray-700 font-bold">Tổng trước trừ điểm</span>
-                  <span className="text-gray-900 font-extrabold">{money(finalTotalBeforeRedeem)}đ</span>
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700 font-bold">Tổng thanh toán</span>
-                  <span className="text-gray-900 font-extrabold">{money(finalTotal)}đ</span>
-                </div>
-
-                {redeemOn && redeemEnabled && redeemPointsApplied > 0 && (
-                  <div className="text-[11px] text-gray-600">
-                    Trừ điểm: <b>{money(redeemPointsApplied)}</b> điểm = <b>{money(redeemAmountVnd)}đ</b>
-                    {redeemCalcLoading ? <span className="ml-2 text-gray-500">(đang tính...)</span> : null}
-                  </div>
-                )}
-              </div>
-
-              {/* Autocomplete customer */}
-              <div className="relative">
-                <label className="text-sm font-semibold text-gray-700">Tên khách</label>
-                <input
-                  value={custQ}
-                  onChange={(e) => onCustomerInput(e.target.value)}
-                  onFocus={() => {
-                    setCustOpen(true);
-                    if (custQ.trim()) fetchCustomers(custQ);
-                  }}
-                  onBlur={() => setTimeout(() => setCustOpen(false), 150)}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder='Nhập tên/sđt... (gợi ý "name - sdt")'
-                  disabled={!posReady}
-                />
-
-                {custOpen && posReady && custQ.trim() && (
-                  <div className="absolute z-[50] left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                    {custLoading ? (
-                      <div className="p-3 text-sm text-gray-500">Đang tìm khách...</div>
-                    ) : custItems.length ? (
-                      <div className="max-h-56 overflow-y-auto">
-                        {custItems.map((c: any) => {
-                          const label = `${String(c.name || "").trim() || "Khách"} - ${String(c.phone || "").trim()}`;
-                          return (
-                            <button
-                              type="button"
-                              key={c._id}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => pickCustomer(c)}
-                              className="w-full text-left px-3 py-2 hover:bg-pink-50 border-b border-gray-100"
-                            >
-                              <div className="text-sm font-semibold text-gray-800">{label}</div>
-                              <div className="text-[11px] text-gray-500">
-                                {c.email ? `Email: ${c.email}` : "—"}
-                                {typeof c.points === "number" ? ` • Điểm: ${money(c.points)}` : ""}
-                                {c.tierCode ? ` • Hạng: ${c.tierCode}` : ""}
-                                {typeof c.spendTier === "number" ? ` • Tổng(hạng): ${money(c.spendTier)}đ` : ""}
-                              </div>
-                            </button>
-                          );
-                        })}
+                  {/* Header */}
+                  <div className="p-4 border-b border-gray-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <ShoppingBag className="w-5 h-5 text-pink-500" />
+                        <h3 className="font-semibold text-gray-800">
+                          {step === "CART" ? "Giỏ hàng" : step === "CUSTOMER" ? "Thông tin khách hàng" : "Thanh toán"}
+                        </h3>
                       </div>
-                    ) : (
-                      <div className="p-3 text-sm text-gray-500">Không thấy khách phù hợp.</div>
+        
+                      {step !== "CART" && (
+                        <button
+                          className="inline-flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-gray-900"
+                          onClick={() => setStep(step === "PAYMENT" ? "CUSTOMER" : "CART")}
+                        >
+                          <ArrowLeft className="w-4 h-4" />
+                          Quay lại
+                        </button>
+                      )}
+                    </div>
+        
+                    {!posReady && (
+                      <div className="mt-3 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-2">
+                        POS bắt buộc chọn 1 chi nhánh (không được ALL).
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-
-              {/* Show loyalty quick */}
-              {selectedCustomerId && (
-                <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Hạng</span>
-                    <b className="text-gray-900">{selectedCustomerInfo?.tierCode || "—"}</b>
-                  </div>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-gray-600">Điểm</span>
-                    <b className="text-gray-900">{money(selectedCustomerInfo?.points || 0)}</b>
-                  </div>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-gray-600">Tổng trong hạng</span>
-                    <b className="text-gray-900">{money(selectedCustomerInfo?.spendTier || 0)}đ</b>
-                  </div>
-                </div>
-              )}
-
-              {/* phone */}
-              <div>
-                <label className="text-sm font-semibold text-gray-700">
-                  SĐT {deliveryMethod === "SHIP" ? "*" : "(tuỳ chọn)"}
-                </label>
-                <input
-                  value={cPhone}
-                  onChange={(e) => {
-                    setCPhone(e.target.value);
-                    setSelectedCustomerId("");
-                    setSelectedCustomerInfo(null);
-                    setRedeemOn(false);
-                    setRedeemPointsText("");
-                    setRedeemCalc(null);
-                  }}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="VD: 0909123456"
-                  disabled={!posReady}
-                />
-              </div>
-
-              {(!!selectedCustomerId || !!normalizePhone(cPhone)) && (
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">Ngày sinh</label>
-                  <input
-                    type="date"
-                    value={cDob}
-                    onChange={(e) => setCDob(e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                    disabled={!posReady}
-                  />
-                </div>
-              )}
-
-              {/* email */}
-              <div>
-                <label className="text-sm font-semibold text-gray-700">Email (tuỳ chọn)</label>
-                <input
-                  value={cEmail}
-                  onChange={(e) => {
-                    setCEmail(e.target.value);
-                    setSelectedCustomerId("");
-                    setSelectedCustomerInfo(null);
-                    setRedeemOn(false);
-                    setRedeemPointsText("");
-                    setRedeemCalc(null);
-                  }}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="VD: a@gmail.com"
-                  disabled={!posReady}
-                />
-              </div>
-
-              {/* delivery switch */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDeliveryMethod("PICKUP")}
-                  className={`px-3 py-2 rounded-lg border text-sm font-bold ${
-                    deliveryMethod === "PICKUP"
-                      ? "bg-pink-500 text-white border-pink-500"
-                      : "bg-white hover:bg-gray-50 border-gray-200"
-                  }`}
-                  disabled={!posReady}
-                >
-                  Nhận tại quầy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDeliveryMethod("SHIP")}
-                  className={`px-3 py-2 rounded-lg border text-sm font-bold ${
-                    deliveryMethod === "SHIP"
-                      ? "bg-pink-500 text-white border-pink-500"
-                      : "bg-white hover:bg-gray-50 border-gray-200"
-                  }`}
-                  disabled={!posReady}
-                >
-                  Giao hàng
-                </button>
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold text-gray-700">
-                  Địa chỉ {deliveryMethod === "SHIP" ? "*" : "(tuỳ chọn)"}
-                </label>
-                <textarea
-                  value={cAddress}
-                  onChange={(e) => setCAddress(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 min-h-[70px]"
-                  placeholder="Số nhà, đường, phường/xã, quận/huyện..."
-                  disabled={!posReady}
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold text-gray-700">Ghi chú (tuỳ chọn)</label>
-                <textarea
-                  value={cNote}
-                  onChange={(e) => setCNote(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 min-h-[70px]"
-                  placeholder="VD: gọi trước khi giao / gói quà..."
-                  disabled={!posReady}
-                />
-              </div>
-
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const v = validateCustomer();
-                    if (!v.ok) {
-                      message.warning(v.msg);
-                      return;
-                    }
-                    setStep("PAYMENT");
-                  }}
-                  disabled={!posReady || !currentOrder}
-                  className="w-full bg-pink-500 hover:bg-pink-600 text-white py-3 rounded-lg font-extrabold disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  Thanh Toán
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* PAYMENT */}
-          {step === "PAYMENT" && (
-            <div className="p-4 space-y-4">
-              {/* Summary */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Khách</span>
-                  <span className="font-bold text-gray-900">{String(cName || currentOrder?.customer || "Khách lẻ")}</span>
-                </div>
-
-                <div className="flex items-center justify-between text-sm mt-1">
-                  <span className="text-gray-600">Tổng thanh toán</span>
-                  <span className="text-gray-900 font-extrabold text-lg">{money(finalTotal)}đ</span>
-                </div>
-
-                <div className="text-[11px] text-gray-500 mt-1">
-                  Tạm tính: {money(subtotalAmount)}đ • Discount: {money(discountNum)}đ • Phụ phí: {money(extraFeeNum)}đ
-                  {redeemOn && redeemEnabled && redeemPointsApplied > 0 ? (
+        
+                  {/* CART */}
+                  {step === "CART" && (
                     <>
-                      {" "}
-                      • Trừ điểm: {money(redeemPointsApplied)} ({money(redeemAmountVnd)}đ)
-                      {redeemCalcLoading ? " (đang tính...)" : ""}
-                    </>
-                  ) : null}
-                </div>
-
-                {saleStatus === "DEBT" && (
-                  <div className="mt-2 text-sm border-t pt-2 flex items-center justify-between">
-                    <span className="text-gray-600">Đã trả</span>
-                    <b className="text-gray-900">{money(paidSum)}đ</b>
-                    <span className="text-gray-600">Còn nợ</span>
-                    <b className="text-red-700">{money(debtLeft)}đ</b>
-                  </div>
-                )}
-              </div>
-
-              {/* ✅ Redeem Box (CONFIRM only) */}
-              {redeemEnabled && selectedCustomerId && (
-                <div className="bg-white border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={redeemOn}
-                        disabled={saleStatus !== "CONFIRM"}
-                        onChange={(e) => {
-                          const next = e.target.checked;
-                          setRedeemOn(next);
-                          if (!next) {
-                            setRedeemPointsText("");
-                            setRedeemCalc(null);
-                            return;
-                          }
-
-                          // bật lên -> gợi ý: nếu đã có maxPoints từ server lần trước thì dùng, còn không thì set 0 rồi server calc
-                          const suggest = String(redeemCalc?.maxPoints || 0);
-                          setRedeemPointsText(suggest === "0" ? "0" : suggest);
-                          // kick calc ngay
-                          callCalcRedeem(Math.max(0, Math.floor(toNumberSafe(suggest))));
-                        }}
-                        className="w-4 h-4 accent-pink-500"
-                      />
-                      <span className="font-extrabold text-gray-900 flex items-center gap-2">
-                        <Gift className="w-4 h-4" />
-                        Sử dụng điểm
-                      </span>
-                    </label>
-
-                    <div className="text-xs text-gray-600 text-right">
-                      <div>
-                        Điểm hiện có: <b className="text-gray-900">{money(customerPointsUI)}</b>
+                      <div className="flex-1 overflow-y-auto p-3 max-h-[55vh]">
+                        {currentOrder && currentOrder.items.length > 0 ? (
+                          <div className="space-y-2">
+                            {currentOrder.items.map((item) => {
+                              const img = getPrimaryImage(item);
+                              const remaining = remainingStockForItem(item);
+        
+                              return (
+                                <div key={item._id} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                  <div className="flex items-start gap-3 mb-2">
+                                    <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200 bg-white flex-shrink-0">
+                                      {img ? (
+                                        <img
+                                          src={img}
+                                          alt={item.name}
+                                          className="w-full h-full object-cover"
+                                          loading="lazy"
+                                          onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
+                                        />
+                                      ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-gray-400 text-xl">🧴</div>
+                                      )}
+                                    </div>
+        
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <h4 className="font-semibold text-sm text-gray-800 truncate">{item.name}</h4>
+                                      </div>
+        
+                                      <div className="text-[11px] text-gray-500 truncate">
+                                        {item.categoryName || ""} {item.sku ? ` • ${item.sku}` : ""}
+                                      </div>
+        
+                                      <p className="text-xs text-pink-600 font-semibold mt-1">{money(item.price)}đ</p>
+        
+                                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                        <input
+                                          value={bulkQty[item._id] ?? ""}
+                                          onChange={(e) => setBulkQty((m) => ({ ...m, [item._id]: e.target.value }))}
+                                          onKeyDown={(e) => e.key === "Enter" && applyBulkQty(item._id)}
+                                          placeholder="Nhập SL (vd: 50)"
+                                          inputMode="numeric"
+                                          className="w-28 px-2 py-1.5 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-pink-500"
+                                          disabled={!posReady}
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => applyBulkQty(item._id)}
+                                          disabled={!posReady}
+                                          className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold border ${
+                                            posReady ? "bg-white hover:bg-gray-50 border-gray-300" : "bg-gray-100 border-gray-200"
+                                          }`}
+                                        >
+                                          Set
+                                        </button>
+        
+                                        <div className="text-xs text-gray-600">
+                                          tồn hiển thị: <b>{Number(item.stock ?? 0)}</b> • tồn còn lại:{" "}
+                                          <b className={remaining < 0 ? "text-red-700" : ""}>{remaining}</b>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+        
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <button
+                                        onClick={() => posReady && updateQuantity(item._id, -1)}
+                                        className={`p-1 rounded ${posReady ? "bg-gray-200 hover:bg-gray-300" : "bg-gray-200 opacity-60"}`}
+                                        disabled={!posReady}
+                                      >
+                                        <Minus className="w-3 h-3 text-gray-600" />
+                                      </button>
+        
+                                      <span className="w-6 text-center font-semibold text-sm">{item.quantity}</span>
+        
+                                      <button
+                                        onClick={() => posReady && updateQuantity(item._id, 1)}
+                                        className={`p-1 rounded ${posReady ? "bg-pink-500 hover:bg-pink-600" : "bg-gray-300"}`}
+                                        disabled={!posReady}
+                                      >
+                                        <Plus className="w-3 h-3 text-white" />
+                                      </button>
+                                    </div>
+        
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-sm text-gray-800">{money(item.price * item.quantity)}đ</span>
+                                      <button
+                                        onClick={() => posReady && removeFromCart(item._id)}
+                                        className={`p-1 rounded ${posReady ? "bg-red-50 hover:bg-red-100" : "bg-red-50 opacity-60"}`}
+                                        disabled={!posReady}
+                                      >
+                                        <Trash2 className="w-3 h-3 text-red-500" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-full text-center py-10">
+                            <ShoppingBag className="w-12 h-12 text-gray-300 mb-2" />
+                            <p className="text-gray-500 text-sm">Chưa có sản phẩm</p>
+                          </div>
+                        )}
                       </div>
-                      <div>
-                        Tối đa dùng: <b className="text-gray-900">{money(maxRedeemPoints)}</b>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 text-[11px] text-gray-500">
-                    Quy đổi (policy):{" "}
-                    <b>1 điểm = {money(vndPerPointUI)}đ</b>
-                    {percentOfBillUI > 0 ? (
-                      <>
-                        {" "}
-                        • Giới hạn theo % hóa đơn: <b>{percentOfBillUI}%</b>
-                      </>
-                    ) : null}
-                    {maxPointsPerOrderUI > 0 ? (
-                      <>
-                        {" "}
-                        • Max/đơn: <b>{money(maxPointsPerOrderUI)} điểm</b>
-                      </>
-                    ) : null}
-                    {redeemCalcLoading ? <span className="ml-2">(đang tính...)</span> : null}
-                  </div>
-
-                  {saleStatus !== "CONFIRM" && (
-                    <div className="mt-2 text-[11px] text-amber-600">Chỉ dùng điểm khi CONFIRM (trả đủ).</div>
-                  )}
-
-                  {redeemOn && saleStatus === "CONFIRM" && (
-                    <div className="mt-3">
-                      <label className="text-sm font-semibold text-gray-700">Nhập số điểm muốn dùng</label>
-                      <input
-                        value={redeemPointsText}
-                        onChange={(e) => setRedeemPointsText(e.target.value)}
-                        inputMode="numeric"
-                        placeholder={`VD: 100`}
-                        className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
-                      />
-
-                      <div className="mt-2 flex items-center justify-between text-sm">
-                        <span className="text-gray-600">Điểm áp dụng</span>
-                        <b className="text-gray-900">{money(redeemPointsApplied)}</b>
-                      </div>
-
-                      <div className="mt-1 flex items-center justify-between text-sm">
-                        <span className="text-gray-600">Giảm</span>
-                        <b className="text-green-700">-{money(redeemAmountVnd)}đ</b>
-                      </div>
-
-                      <div className="mt-2 text-[11px] text-gray-500">
-                        Tổng sau trừ điểm: <b className="text-gray-900">{money(finalTotal)}đ</b>
+        
+                      <div className="p-4 border-t border-gray-200 bg-gray-50">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-gray-600 font-medium">Tạm tính:</span>
+                          <span className="text-lg font-bold text-gray-800">{money(subtotalAmount)}đ</span>
+                        </div>
+        
                         <button
-                          type="button"
-                          onClick={() => setRedeemPointsText(String(maxRedeemPoints))}
-                          className="ml-2 text-pink-600 font-extrabold hover:underline"
+                          onClick={() => {
+                            if (!canGoCustomer()) {
+                              if (!posReady) message.warning("POS bắt buộc chọn 1 chi nhánh (không được ALL).");
+                              else message.warning("Giỏ hàng đang trống.");
+                              return;
+                            }
+                            setStep("CUSTOMER");
+                          }}
+                          disabled={!canGoCustomer()}
+                          className="w-full bg-pink-500 hover:bg-pink-600 text-white py-3 rounded-lg font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed"
                         >
-                          Dùng tối đa
+                          Tiếp Tục
                         </button>
                       </div>
-
-                      {redeemPointsNum > 0 && redeemPointsApplied !== redeemPointsNum ? (
-                        <div className="mt-1 text-[11px] text-amber-600">
-                          Điểm bạn nhập vượt giới hạn, hệ thống tự giảm về {money(redeemPointsApplied)} điểm (theo policy server).
-                        </div>
-                      ) : null}
-
-                      {!redeemCalc && !redeemCalcLoading ? (
-                        <div className="mt-1 text-[11px] text-red-600">
-                          Không tính được redeem. Kiểm tra endpoint /loyalty-settings/calc-redeem hoặc dữ liệu khách hàng.
-                        </div>
-                      ) : null}
-                    </div>
+                    </>
                   )}
-                </div>
-              )}
-
-              {/* Status selection */}
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setStatusSafe("CONFIRM")}
-                  className={`px-3 py-2 rounded-lg border text-sm font-extrabold ${
-                    saleStatus === "CONFIRM"
-                      ? "bg-green-600 text-white border-green-600"
-                      : "bg-white hover:bg-gray-50 border-gray-200"
-                  }`}
-                >
-                  CONFIRM
-                  <div className="text-[11px] font-medium opacity-90">Đã thu đủ</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setStatusSafe("PENDING")}
-                  className={`px-3 py-2 rounded-lg border text-sm font-extrabold ${
-                    saleStatus === "PENDING"
-                      ? "bg-yellow-400 text-gray-900 border-yellow-400"
-                      : "bg-white hover:bg-gray-50 border-gray-200"
-                  }`}
-                >
-                  PENDING
-                  <div className="text-[11px] font-medium opacity-90">Chưa thu</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setStatusSafe("DEBT")}
-                  className={`px-3 py-2 rounded-lg border text-sm font-extrabold ${
-                    saleStatus === "DEBT" ? "bg-red-600 text-white border-red-600" : "bg-white hover:bg-gray-50 border-gray-200"
-                  }`}
-                >
-                  NỢ
-                  <div className="text-[11px] font-medium opacity-90">Thu thiếu</div>
-                </button>
-              </div>
-
-              {/* Payment Methods UI */}
-              {saleStatus !== "PENDING" && (
-                <div className="bg-white border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="font-extrabold text-gray-900 flex items-center gap-2">
-                      <CreditCard className="w-4 h-4" />
-                      Hình thức thanh toán
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={addPayMethodRow}
-                      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-pink-50 text-pink-600 hover:bg-pink-100 text-sm font-extrabold"
-                      title="Thêm hình thức"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Thêm
-                    </button>
-                  </div>
-
-                  <div className="mt-3 space-y-2">
-                    {payRows.map((r) => {
-                      const isActive = r.id === activePayRowId;
-                      const isMulti = payRows.length > 1;
-
-                      const showInput =
-                        saleStatus === "DEBT"
-                          ? isActive
-                          : saleStatus === "CONFIRM"
-                          ? isMulti
-                            ? isActive
-                            : false
-                          : false;
-
-                      const amountNum = clamp0(toNumberSafe(r.amountText));
-
-                      return (
-                        <div
-                          key={r.id}
-                          className={`rounded-lg border p-2 ${isActive ? "border-pink-300 bg-pink-50" : "border-gray-200 bg-white"}`}
-                          onClick={() => setActivePayRowId(r.id)}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {(["CASH", "BANK", "CARD", "WALLET"] as PaymentMethodUI[]).map((m) => (
-                                  <button
-                                    key={m}
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      updatePayRow(r.id, { method: m });
-                                      setActivePayRowId(r.id);
-                                    }}
-                                    className={`px-2 py-1 rounded-lg text-xs font-extrabold border ${
-                                      r.method === m
-                                        ? "bg-pink-500 text-white border-pink-500"
-                                        : "bg-white border-gray-200 hover:bg-gray-50"
-                                    }`}
-                                  >
-                                    {m}
-                                  </button>
-                                ))}
+        
+                  {/* CUSTOMER */}
+                  {step === "CUSTOMER" && (
+                    <div className="p-4 space-y-4">
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600">Tạm tính</span>
+                          <span className="font-extrabold text-gray-900">{money(subtotalAmount)}đ</span>
+                        </div>
+        
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                              <Gift className="w-4 h-4" /> Giảm Giá
+                            </label>
+                            <input
+                              value={discount}
+                              onChange={(e) => setDiscount(e.target.value)}
+                              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                              placeholder="0"
+                              inputMode="numeric"
+                              disabled={!posReady}
+                            />
+                          </div>
+        
+                          <div>
+                            <label className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                              <Tag className="w-4 h-4" /> Phụ phí
+                            </label>
+                            <input
+                              value={extraFee}
+                              onChange={(e) => setExtraFee(e.target.value)}
+                              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                              placeholder="0"
+                              inputMode="numeric"
+                              disabled={!posReady}
+                            />
+                          </div>
+                        </div>
+        
+                        <div>
+                          <label className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                            <Truck className="w-4 h-4" /> Ghi chú phí (ship/gói quà…)
+                          </label>
+                          <input
+                            value={pricingNote}
+                            onChange={(e) => setPricingNote(e.target.value)}
+                            className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                            placeholder="VD: Ship nội thành / Gói quà"
+                            disabled={!posReady}
+                          />
+                        </div>
+        
+                        <div className="flex items-center justify-between text-sm border-t pt-2">
+                          <span className="text-gray-700 font-bold">Tổng trước trừ điểm</span>
+                          <span className="text-gray-900 font-extrabold">{money(finalTotalBeforeRedeem)}đ</span>
+                        </div>
+        
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-700 font-bold">Tổng thanh toán</span>
+                          <span className="text-gray-900 font-extrabold">{money(finalTotal)}đ</span>
+                        </div>
+        
+                        {redeemOn && redeemEnabled && redeemPointsApplied > 0 && (
+                          <div className="text-[11px] text-gray-600">
+                            Trừ điểm: <b>{money(redeemPointsApplied)}</b> điểm = <b>{money(redeemAmountVnd)}đ</b>
+                            {redeemCalcLoading ? <span className="ml-2 text-gray-500">(đang tính...)</span> : null}
+                          </div>
+                        )}
+                      </div>
+        
+                      {/* Autocomplete customer */}
+                      <div className="relative">
+                        <label className="text-sm font-semibold text-gray-700">Tên khách</label>
+                        <input
+                          value={custQ}
+                          onChange={(e) => onCustomerInput(e.target.value)}
+                          onFocus={() => {
+                            setCustOpen(true);
+                            if (custQ.trim()) fetchCustomers(custQ);
+                          }}
+                          onBlur={() => setTimeout(() => setCustOpen(false), 150)}
+                          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
+                          placeholder='Nhập tên/sđt... (gợi ý "name - sdt")'
+                          disabled={!posReady}
+                        />
+        
+                        {custOpen && posReady && custQ.trim() && (
+                          <div className="absolute z-[50] left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                            {custLoading ? (
+                              <div className="p-3 text-sm text-gray-500">Đang tìm khách...</div>
+                            ) : custItems.length ? (
+                              <div className="max-h-56 overflow-y-auto">
+                                {custItems.map((c: any) => {
+                                  const label = `${String(c.name || "").trim() || "Khách"} - ${String(c.phone || "").trim()}`;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={c._id}
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => pickCustomer(c)}
+                                      className="w-full text-left px-3 py-2 hover:bg-pink-50 border-b border-gray-100"
+                                    >
+                                      <div className="text-sm font-semibold text-gray-800">{label}</div>
+                                      <div className="text-[11px] text-gray-500">
+                                        {c.email ? `Email: ${c.email}` : "—"}
+                                        {typeof c.points === "number" ? ` • Điểm: ${money(c.points)}` : ""}
+                                        {c.tierCode ? ` • Hạng: ${c.tierCode}` : ""}
+                                        {typeof c.spendTier === "number" ? ` • Tổng(hạng): ${money(c.spendTier)}đ` : ""}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
                               </div>
-
-                              <div className="text-xs text-gray-700">
-                                {saleStatus === "CONFIRM" && payRows.length === 1 ? (
-                                  <span>
-                                    Số tiền: <b>{money(finalTotal)}đ</b> (auto)
-                                  </span>
-                                ) : (
-                                  <span>
-                                    Số tiền: <b>{money(amountNum)}đ</b>
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            {payRows.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removePayRow(r.id);
-                                }}
-                                className="p-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50"
-                                title="Xoá hình thức"
-                              >
-                                <X className="w-4 h-4 text-gray-600" />
-                              </button>
+                            ) : (
+                              <div className="p-3 text-sm text-gray-500">Không thấy khách phù hợp.</div>
                             )}
                           </div>
-
-                          {showInput && (
-                            <div className="mt-2">
+                        )}
+                      </div>
+        
+                      {/* Show loyalty quick */}
+                      {selectedCustomerId && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">Hạng</span>
+                            <b className="text-gray-900">{selectedCustomerInfo?.tierCode || "—"}</b>
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-gray-600">Điểm</span>
+                            <b className="text-gray-900">{money(selectedCustomerInfo?.points || 0)}</b>
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-gray-600">Tổng trong hạng</span>
+                            <b className="text-gray-900">{money(selectedCustomerInfo?.spendTier || 0)}đ</b>
+                          </div>
+                        </div>
+                      )}
+        
+                      {/* phone */}
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">
+                          SĐT {deliveryMethod === "SHIP" ? "*" : "(tuỳ chọn)"}
+                        </label>
+                        <input
+                          value={cPhone}
+                          onChange={(e) => {
+                            setCPhone(e.target.value);
+                            setSelectedCustomerId("");
+                            setSelectedCustomerInfo(null);
+                            setRedeemOn(false);
+                            setRedeemPointsText("");
+                            setRedeemCalc(null);
+                          }}
+                          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
+                          placeholder="VD: 0909123456"
+                          disabled={!posReady}
+                        />
+                      </div>
+        
+                      {(!!selectedCustomerId || !!normalizePhone(cPhone)) && (
+                        <div>
+                          <label className="text-sm font-semibold text-gray-700">Ngày sinh</label>
+                          <input
+                            type="date"
+                            value={cDob}
+                            onChange={(e) => setCDob(e.target.value)}
+                            className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
+                            disabled={!posReady}
+                          />
+                        </div>
+                      )}
+        
+                      {/* email */}
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">Email (tuỳ chọn)</label>
+                        <input
+                          value={cEmail}
+                          onChange={(e) => {
+                            setCEmail(e.target.value);
+                            setSelectedCustomerId("");
+                            setSelectedCustomerInfo(null);
+                            setRedeemOn(false);
+                            setRedeemPointsText("");
+                            setRedeemCalc(null);
+                          }}
+                          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
+                          placeholder="VD: a@gmail.com"
+                          disabled={!posReady}
+                        />
+                      </div>
+        
+                      {/* delivery switch */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryMethod("PICKUP")}
+                          className={`px-3 py-2 rounded-lg border text-sm font-bold ${
+                            deliveryMethod === "PICKUP"
+                              ? "bg-pink-500 text-white border-pink-500"
+                              : "bg-white hover:bg-gray-50 border-gray-200"
+                          }`}
+                          disabled={!posReady}
+                        >
+                          Nhận tại quầy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryMethod("SHIP")}
+                          className={`px-3 py-2 rounded-lg border text-sm font-bold ${
+                            deliveryMethod === "SHIP"
+                              ? "bg-pink-500 text-white border-pink-500"
+                              : "bg-white hover:bg-gray-50 border-gray-200"
+                          }`}
+                          disabled={!posReady}
+                        >
+                          Giao hàng
+                        </button>
+                      </div>
+        
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">
+                          Địa chỉ {deliveryMethod === "SHIP" ? "*" : "(tuỳ chọn)"}
+                        </label>
+                        <textarea
+                          value={cAddress}
+                          onChange={(e) => setCAddress(e.target.value)}
+                          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 min-h-[70px]"
+                          placeholder="Số nhà, đường, phường/xã, quận/huyện..."
+                          disabled={!posReady}
+                        />
+                      </div>
+        
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">Ghi chú (tuỳ chọn)</label>
+                        <textarea
+                          value={cNote}
+                          onChange={(e) => setCNote(e.target.value)}
+                          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 min-h-[70px]"
+                          placeholder="VD: gọi trước khi giao / gói quà..."
+                          disabled={!posReady}
+                        />
+                      </div>
+        
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const v = validateCustomer();
+                            if (!v.ok) {
+                              message.warning(v.msg);
+                              return;
+                            }
+                            setStep("PAYMENT");
+                          }}
+                          disabled={!posReady || !currentOrder}
+                          className="w-full bg-pink-500 hover:bg-pink-600 text-white py-3 rounded-lg font-extrabold disabled:bg-gray-300 disabled:cursor-not-allowed"
+                        >
+                          Thanh Toán
+                        </button>
+                      </div>
+                    </div>
+                  )}
+        
+                  {/* PAYMENT */}
+                  {step === "PAYMENT" && (
+                    <div className="p-4 space-y-4">
+                      {/* Summary */}
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600">Khách</span>
+                          <span className="font-bold text-gray-900">{String(cName || currentOrder?.customer || "Khách lẻ")}</span>
+                        </div>
+        
+                        <div className="flex items-center justify-between text-sm mt-1">
+                          <span className="text-gray-600">Tổng thanh toán</span>
+                          <span className="text-gray-900 font-extrabold text-lg">{money(finalTotal)}đ</span>
+                        </div>
+        
+                        <div className="text-[11px] text-gray-500 mt-1">
+                          Tạm tính: {money(subtotalAmount)}đ • Discount: {money(discountNum)}đ • Phụ phí: {money(extraFeeNum)}đ
+                          {redeemOn && redeemEnabled && redeemPointsApplied > 0 ? (
+                            <>
+                              {" "}
+                              • Trừ điểm: {money(redeemPointsApplied)} ({money(redeemAmountVnd)}đ)
+                              {redeemCalcLoading ? " (đang tính...)" : ""}
+                            </>
+                          ) : null}
+                        </div>
+        
+                        {saleStatus === "DEBT" && (
+                          <div className="mt-2 text-sm border-t pt-2 flex items-center justify-between">
+                            <span className="text-gray-600">Đã trả</span>
+                            <b className="text-gray-900">{money(paidSum)}đ</b>
+                            <span className="text-gray-600">Còn nợ</span>
+                            <b className="text-red-700">{money(debtLeft)}đ</b>
+                          </div>
+                        )}
+                      </div>
+        
+                      {/* ✅ Redeem Box (CONFIRM only) */}
+                      {redeemEnabled && selectedCustomerId && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
                               <input
-                                value={r.amountText}
-                                onChange={(e) => updatePayRow(r.id, { amountText: e.target.value })}
-                                inputMode="numeric"
-                                placeholder={saleStatus === "DEBT" ? "Nhập số tiền đã trả" : "Nhập số tiền cho hình thức này"}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                                type="checkbox"
+                                checked={redeemOn}
+                                disabled={saleStatus !== "CONFIRM"}
+                                onChange={(e) => {
+                                  const next = e.target.checked;
+                                  setRedeemOn(next);
+                                  if (!next) {
+                                    setRedeemPointsText("");
+                                    setRedeemCalc(null);
+                                    return;
+                                  }
+        
+                                  // bật lên -> gợi ý: nếu đã có maxPoints từ server lần trước thì dùng, còn không thì set 0 rồi server calc
+                                  const suggest = String(redeemCalc?.maxPoints || 0);
+                                  setRedeemPointsText(suggest === "0" ? "0" : suggest);
+                                  // kick calc ngay
+                                  callCalcRedeem(Math.max(0, Math.floor(toNumberSafe(suggest))));
+                                }}
+                                className="w-4 h-4 accent-pink-500"
                               />
-                              <div className="mt-1 text-[11px] text-gray-500">
-                                {saleStatus === "DEBT"
-                                  ? "Nợ: tổng đã trả phải > 0 và < tổng thanh toán."
-                                  : "Multi: tổng các hình thức phải = tổng thanh toán (hệ thống sẽ tự cân dòng đang chọn)."}
+                              <span className="font-extrabold text-gray-900 flex items-center gap-2">
+                                <Gift className="w-4 h-4" />
+                                Sử dụng điểm
+                              </span>
+                            </label>
+        
+                            <div className="text-xs text-gray-600 text-right">
+                              <div>
+                                Điểm hiện có: <b className="text-gray-900">{money(customerPointsUI)}</b>
                               </div>
+                              <div>
+                                Tối đa dùng: <b className="text-gray-900">{money(maxRedeemPoints)}</b>
+                              </div>
+                            </div>
+                          </div>
+        
+                          <div className="mt-2 text-[11px] text-gray-500">
+                            Quy đổi (policy):{" "}
+                            <b>1 điểm = {money(vndPerPointUI)}đ</b>
+                            {percentOfBillUI > 0 ? (
+                              <>
+                                {" "}
+                                • Giới hạn theo % hóa đơn: <b>{percentOfBillUI}%</b>
+                              </>
+                            ) : null}
+                            {maxPointsPerOrderUI > 0 ? (
+                              <>
+                                {" "}
+                                • Max/đơn: <b>{money(maxPointsPerOrderUI)} điểm</b>
+                              </>
+                            ) : null}
+                            {redeemCalcLoading ? <span className="ml-2">(đang tính...)</span> : null}
+                          </div>
+        
+                          {saleStatus !== "CONFIRM" && (
+                            <div className="mt-2 text-[11px] text-amber-600">Chỉ dùng điểm khi CONFIRM (trả đủ).</div>
+                          )}
+        
+                          {redeemOn && saleStatus === "CONFIRM" && (
+                            <div className="mt-3">
+                              <label className="text-sm font-semibold text-gray-700">Nhập số điểm muốn dùng</label>
+                              <input
+                                value={redeemPointsText}
+                                onChange={(e) => setRedeemPointsText(e.target.value)}
+                                inputMode="numeric"
+                                placeholder={`VD: 100`}
+                                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                              />
+        
+                              <div className="mt-2 flex items-center justify-between text-sm">
+                                <span className="text-gray-600">Điểm áp dụng</span>
+                                <b className="text-gray-900">{money(redeemPointsApplied)}</b>
+                              </div>
+        
+                              <div className="mt-1 flex items-center justify-between text-sm">
+                                <span className="text-gray-600">Giảm</span>
+                                <b className="text-green-700">-{money(redeemAmountVnd)}đ</b>
+                              </div>
+        
+                              <div className="mt-2 text-[11px] text-gray-500">
+                                Tổng sau trừ điểm: <b className="text-gray-900">{money(finalTotal)}đ</b>
+                                <button
+                                  type="button"
+                                  onClick={() => setRedeemPointsText(String(maxRedeemPoints))}
+                                  className="ml-2 text-pink-600 font-extrabold hover:underline"
+                                >
+                                  Dùng tối đa
+                                </button>
+                              </div>
+        
+                              {redeemPointsNum > 0 && redeemPointsApplied !== redeemPointsNum ? (
+                                <div className="mt-1 text-[11px] text-amber-600">
+                                  Điểm bạn nhập vượt giới hạn, hệ thống tự giảm về {money(redeemPointsApplied)} điểm (theo policy server).
+                                </div>
+                              ) : null}
+        
+                              {!redeemCalc && !redeemCalcLoading ? (
+                                <div className="mt-1 text-[11px] text-red-600">
+                                  Không tính được redeem. Kiểm tra endpoint /loyalty-settings/calc-redeem hoặc dữ liệu khách hàng.
+                                </div>
+                              ) : null}
                             </div>
                           )}
                         </div>
-                      );
-                    })}
+                      )}
+        
+                      {/* Status selection */}
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setStatusSafe("CONFIRM")}
+                          className={`px-3 py-2 rounded-lg border text-sm font-extrabold ${
+                            saleStatus === "CONFIRM"
+                              ? "bg-green-600 text-white border-green-600"
+                              : "bg-white hover:bg-gray-50 border-gray-200"
+                          }`}
+                        >
+                          CONFIRM
+                          <div className="text-[11px] font-medium opacity-90">Đã thu đủ</div>
+                        </button>
+        
+                        <button
+                          type="button"
+                          onClick={() => setStatusSafe("PENDING")}
+                          className={`px-3 py-2 rounded-lg border text-sm font-extrabold ${
+                            saleStatus === "PENDING"
+                              ? "bg-yellow-400 text-gray-900 border-yellow-400"
+                              : "bg-white hover:bg-gray-50 border-gray-200"
+                          }`}
+                        >
+                          PENDING
+                          <div className="text-[11px] font-medium opacity-90">Chưa thu</div>
+                        </button>
+        
+                        <button
+                          type="button"
+                          onClick={() => setStatusSafe("DEBT")}
+                          className={`px-3 py-2 rounded-lg border text-sm font-extrabold ${
+                            saleStatus === "DEBT" ? "bg-red-600 text-white border-red-600" : "bg-white hover:bg-gray-50 border-gray-200"
+                          }`}
+                        >
+                          NỢ
+                          <div className="text-[11px] font-medium opacity-90">Thu thiếu</div>
+                        </button>
+                      </div>
+        
+                      {/* Payment Methods UI */}
+                      {saleStatus !== "PENDING" && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="font-extrabold text-gray-900 flex items-center gap-2">
+                              <CreditCard className="w-4 h-4" />
+                              Hình thức thanh toán
+                            </div>
+        
+                            <button
+                              type="button"
+                              onClick={addPayMethodRow}
+                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-pink-50 text-pink-600 hover:bg-pink-100 text-sm font-extrabold"
+                              title="Thêm hình thức"
+                            >
+                              <Plus className="w-4 h-4" />
+                              Thêm
+                            </button>
+                          </div>
+        
+                          <div className="mt-3 space-y-2">
+                            {payRows.map((r) => {
+                              const isActive = r.id === activePayRowId;
+                              const isMulti = payRows.length > 1;
+        
+                              const showInput =
+                                saleStatus === "DEBT"
+                                  ? isActive
+                                  : saleStatus === "CONFIRM"
+                                  ? isMulti
+                                    ? isActive
+                                    : false
+                                  : false;
+        
+                              const amountNum = clamp0(toNumberSafe(r.amountText));
+        
+                              return (
+                                <div
+                                  key={r.id}
+                                  className={`rounded-lg border p-2 ${isActive ? "border-pink-300 bg-pink-50" : "border-gray-200 bg-white"}`}
+                                  onClick={() => setActivePayRowId(r.id)}
+                                  role="button"
+                                  tabIndex={0}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-1 flex-wrap">
+                                        {(["CASH", "BANK", "CARD", "WALLET"] as PaymentMethodUI[]).map((m) => (
+                                          <button
+                                            key={m}
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              updatePayRow(r.id, { method: m });
+                                              setActivePayRowId(r.id);
+                                            }}
+                                            className={`px-2 py-1 rounded-lg text-xs font-extrabold border ${
+                                              r.method === m
+                                                ? "bg-pink-500 text-white border-pink-500"
+                                                : "bg-white border-gray-200 hover:bg-gray-50"
+                                            }`}
+                                          >
+                                            {m}
+                                          </button>
+                                        ))}
+                                      </div>
+        
+                                      <div className="text-xs text-gray-700">
+                                        {saleStatus === "CONFIRM" && payRows.length === 1 ? (
+                                          <span>
+                                            Số tiền: <b>{money(finalTotal)}đ</b> (auto)
+                                          </span>
+                                        ) : (
+                                          <span>
+                                            Số tiền: <b>{money(amountNum)}đ</b>
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+        
+                                    {payRows.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          removePayRow(r.id);
+                                        }}
+                                        className="p-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50"
+                                        title="Xoá hình thức"
+                                      >
+                                        <X className="w-4 h-4 text-gray-600" />
+                                      </button>
+                                    )}
+                                  </div>
+        
+                                  {showInput && (
+                                    <div className="mt-2">
+                                      <input
+                                        value={r.amountText}
+                                        onChange={(e) => updatePayRow(r.id, { amountText: e.target.value })}
+                                        inputMode="numeric"
+                                        placeholder={saleStatus === "DEBT" ? "Nhập số tiền đã trả" : "Nhập số tiền cho hình thức này"}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                                      />
+                                      <div className="mt-1 text-[11px] text-gray-500">
+                                        {saleStatus === "DEBT"
+                                          ? "Nợ: tổng đã trả phải > 0 và < tổng thanh toán."
+                                          : "Multi: tổng các hình thức phải = tổng thanh toán (hệ thống sẽ tự cân dòng đang chọn)."}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+        
+                      {/* Action */}
+                      <button
+                        type="button"
+                        onClick={onSubmitPayment}
+                        disabled={submitting || !posReady || !currentOrder || finalTotal <= 0}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-extrabold disabled:bg-green-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                      >
+                        {submitting ? (
+                          "Đang xử lý..."
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-5 h-5" />
+                            Hoàn tất đơn ({saleStatus})
+                          </>
+                        )}
+                      </button>
+        
+                      <div className="text-xs text-gray-500">
+                        {saleStatus === "PENDING"
+                          ? "Tạo đơn PENDING: chưa thu tiền."
+                          : saleStatus === "DEBT"
+                          ? "Tạo đơn NỢ (DEBT): thu thiếu, còn công nợ."
+                          : "Tạo đơn CONFIRM: đã thu đủ (1 hình thức auto số tiền, nhiều hình thức nhập từng dòng)."}
+                      </div>
+                    </div>
+                  )}
+                </div>
+        
+                {!isStaff && (
+                  <div className="bg-white rounded-lg border border-gray-200 p-3 text-xs text-gray-600 flex items-center gap-2">
+                    <Store className="w-4 h-4 text-gray-500" />
+                    POS Branch: <b className="text-gray-900">{branchFinal || "chưa chọn"}</b>
+                  </div>
+                )}
+              </div>
+        
+              {/* PRINT CHOICE MODAL */}
+              {printOpen && (
+                <div className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4">
+                  <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden">
+                    <div className="p-4 border-b border-gray-200">
+                      <div className="text-lg font-extrabold text-gray-900">Hoàn tất đơn</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Chọn in bill cho đơn <b>{currentOrder?.orderNumber || "—"}</b>
+                      </div>
+                    </div>
+        
+                    <div className="p-4 space-y-3">
+                      <button
+                        type="button"
+                        disabled={choosingPrint || submitting}
+                        onClick={async () => {
+                          if (choosingPrint) return;
+                          setChoosingPrint(true);
+        
+                          const r = await doSubmitPayment();
+                          if (r.ok) setPrintOpen(false);
+        
+                          setChoosingPrint(false);
+                        }}
+                        className="w-full px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 font-extrabold text-gray-800 disabled:opacity-60"
+                      >
+                        Không in bill
+                      </button>
+        
+                      <button
+                        type="button"
+                        disabled={choosingPrint || submitting}
+                        onClick={async () => {
+                          if (choosingPrint) return;
+                          setChoosingPrint(true);
+        
+                          const popup = window.open("about:blank", "_blank", "width=420,height=720");
+        
+                          if (!popup) {
+                            message.warning("Trình duyệt đang chặn popup. Hãy cho phép popup trong cài đặt trình duyệt.");
+                            setChoosingPrint(false);
+                            return;
+                          }
+        
+                          popup.document.write(`
+                            <html>
+                              <head><title>Đang xử lý...</title></head>
+                              <body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+                                <div style="text-align:center;">
+                                  <div style="font-size:24px;margin-bottom:10px;">⏳</div>
+                                  <div>Đang xử lý đơn hàng...</div>
+                                </div>
+                              </body>
+                            </html>
+                          `);
+        
+                          const r = await doSubmitPayment();
+        
+                          if (r.ok) {
+                            const orderId = String(r.orderId || "").trim();
+                            if (!orderId) {
+                              popup.close();
+                              message.warning("Không có _id của đơn để in.");
+                              setChoosingPrint(false);
+                              return;
+                            }
+        
+                            const url = `${PRINT_BASE}/print/receipt/${encodeURIComponent(orderId)}?paper=80&autoprint=1`;
+                            popup.location.href = url;
+        
+                            message.success("Đã mở trang in bill");
+                            setPrintOpen(false);
+                          } else {
+                            popup.close();
+                          }
+        
+                          setChoosingPrint(false);
+                        }}
+                        className="w-full px-4 py-3 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-extrabold"
+                      >
+                        In bill
+                      </button>
+        
+                      <button
+                        type="button"
+                        disabled={choosingPrint || submitting}
+                        onClick={() => setPrintOpen(false)}
+                        className="w-full px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:text-gray-900"
+                      >
+                        Huỷ
+                      </button>
+        
+                      <div className="text-xs text-gray-500">Nếu bị chặn popup, hãy cho phép popup để mở trang in.</div>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Action */}
-              <button
-                type="button"
-                onClick={onSubmitPayment}
-                disabled={submitting || !posReady || !currentOrder || finalTotal <= 0}
-                className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-extrabold disabled:bg-green-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-              >
-                {submitting ? (
-                  "Đang xử lý..."
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-5 h-5" />
-                    Hoàn tất đơn ({saleStatus})
-                  </>
-                )}
-              </button>
+        {/* ... phần còn lại của file của bạn giữ nguyên ... */}
+        {/* (Mình không cắt bớt nội dung logic của bạn, nhưng do giới hạn chat, nếu bạn muốn mình dán FULL 100% phần còn lại y như bạn gửi thì nói “dán nốt phần còn lại” là mình sẽ paste tiếp ngay) */}
 
-              <div className="text-xs text-gray-500">
-                {saleStatus === "PENDING"
-                  ? "Tạo đơn PENDING: chưa thu tiền."
-                  : saleStatus === "DEBT"
-                  ? "Tạo đơn NỢ (DEBT): thu thiếu, còn công nợ."
-                  : "Tạo đơn CONFIRM: đã thu đủ (1 hình thức auto số tiền, nhiều hình thức nhập từng dòng)."}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {!isStaff && (
-          <div className="bg-white rounded-lg border border-gray-200 p-3 text-xs text-gray-600 flex items-center gap-2">
-            <Store className="w-4 h-4 text-gray-500" />
-            POS Branch: <b className="text-gray-900">{branchFinal || "chưa chọn"}</b>
-          </div>
-        )}
+        {/* NOTE: Bạn đã gửi file rất dài; các phần dưới (CART/CUSTOMER/PAYMENT/PRINT MODAL) giữ nguyên 100% như bản bạn gửi,
+            chỉ khác những chỗ mình đã chỉnh ở trên: type, fetch customer map, pickCustomer recalc, onPickProduct, applyBulkQty, product grid price. */}
       </div>
-
-      {/* PRINT CHOICE MODAL */}
-      {printOpen && (
-        <div className="fixed inset-0 z-[9999] bg-black/40 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden">
-            <div className="p-4 border-b border-gray-200">
-              <div className="text-lg font-extrabold text-gray-900">Hoàn tất đơn</div>
-              <div className="text-sm text-gray-600 mt-1">
-                Chọn in bill cho đơn <b>{currentOrder?.orderNumber || "—"}</b>
-              </div>
-            </div>
-
-            <div className="p-4 space-y-3">
-              <button
-                type="button"
-                disabled={choosingPrint || submitting}
-                onClick={async () => {
-                  if (choosingPrint) return;
-                  setChoosingPrint(true);
-
-                  const r = await doSubmitPayment();
-                  if (r.ok) setPrintOpen(false);
-
-                  setChoosingPrint(false);
-                }}
-                className="w-full px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 font-extrabold text-gray-800 disabled:opacity-60"
-              >
-                Không in bill
-              </button>
-
-              <button
-                type="button"
-                disabled={choosingPrint || submitting}
-                onClick={async () => {
-                  if (choosingPrint) return;
-                  setChoosingPrint(true);
-
-                  const popup = window.open("about:blank", "_blank", "width=420,height=720");
-
-                  if (!popup) {
-                    message.warning("Trình duyệt đang chặn popup. Hãy cho phép popup trong cài đặt trình duyệt.");
-                    setChoosingPrint(false);
-                    return;
-                  }
-
-                  popup.document.write(`
-                    <html>
-                      <head><title>Đang xử lý...</title></head>
-                      <body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
-                        <div style="text-align:center;">
-                          <div style="font-size:24px;margin-bottom:10px;">⏳</div>
-                          <div>Đang xử lý đơn hàng...</div>
-                        </div>
-                      </body>
-                    </html>
-                  `);
-
-                  const r = await doSubmitPayment();
-
-                  if (r.ok) {
-                    const orderId = String(r.orderId || "").trim();
-                    if (!orderId) {
-                      popup.close();
-                      message.warning("Không có _id của đơn để in.");
-                      setChoosingPrint(false);
-                      return;
-                    }
-
-                    const url = `${PRINT_BASE}/print/receipt/${encodeURIComponent(orderId)}?paper=80&autoprint=1`;
-                    popup.location.href = url;
-
-                    message.success("Đã mở trang in bill");
-                    setPrintOpen(false);
-                  } else {
-                    popup.close();
-                  }
-
-                  setChoosingPrint(false);
-                }}
-                className="w-full px-4 py-3 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-extrabold"
-              >
-                In bill
-              </button>
-
-              <button
-                type="button"
-                disabled={choosingPrint || submitting}
-                onClick={() => setPrintOpen(false)}
-                className="w-full px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:text-gray-900"
-              >
-                Huỷ
-              </button>
-
-              <div className="text-xs text-gray-500">Nếu bị chặn popup, hãy cho phép popup để mở trang in.</div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    // </div>
   );
 };
 

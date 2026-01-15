@@ -221,6 +221,8 @@ const DEFAULT_SETTINGS: Omit<ShopSettingsDTO, "branchId"> = {
       redeem: {
         redeemEnable: false,
         redeemValueVndPerPoint: 1000,
+        percentOfBill: 0,
+        maxPointsPerOrder: 0,
       },
     },
   },
@@ -402,7 +404,9 @@ const renderReceiptPreview = (
         </div>`;
 
       case "BARCODE":
-        return `<div ${styleOf(b)}><div style="display:inline-block;padding:10px;border:1px dashed #bbb;border-radius:8px;color:#666;font-size:10px;">BARCODE: ${esc(demo.order.code)}</div></div>`;
+        return `<div ${styleOf(b)}><div style="display:inline-block;padding:10px;border:1px dashed #bbb;border-radius:8px;color:#666;font-size:10px;">BARCODE: ${esc(
+          demo.order.code
+        )}</div></div>`;
 
       case "QR_PAYMENT":
         return `<div ${styleOf(b)}><div style="display:inline-block;padding:20px;border:1px dashed #bbb;border-radius:8px;color:#666;font-size:10px;">QR CODE<br/>Chuyển khoản</div></div>`;
@@ -482,6 +486,18 @@ type TierDTO = {
 };
 
 // ==========================
+// TierAgency (khách sỉ / đại lý) types
+// ==========================
+type TierAgencyDTO = {
+  _id: string;
+  code: string; // "AGENCY_1"
+  name: string; // "Sỉ cấp 1"
+  level: number;
+  isActive: boolean;
+  note?: string;
+};
+
+// ==========================
 // Helpers
 // ==========================
 const normalizeStr = (v: any) => String(v ?? "").trim();
@@ -518,6 +534,17 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
   const [tierForm] = Form.useForm();
 
   const [useMinOrderGate, setUseMinOrderGate] = useState(false);
+
+  // ==========================
+  // Agency tiers (khách sỉ / đại lý)
+  // ==========================
+  const [agencyTiers, setAgencyTiers] = useState<TierAgencyDTO[]>([]);
+  const [agencyLoading, setAgencyLoading] = useState(false);
+
+  const [agencyModalOpen, setAgencyModalOpen] = useState(false);
+  const [agencyModalMode, setAgencyModalMode] = useState<"create" | "edit">("create");
+  const [editingAgencyTier, setEditingAgencyTier] = useState<TierAgencyDTO | null>(null);
+  const [agencyForm] = Form.useForm();
 
   // ==========================
   // Load branches list
@@ -620,6 +647,112 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
       message.error(e?.response?.data?.message || e?.message || "Lưu Loyalty Setting thất bại");
     } finally {
       setLoyaltyLoading(false);
+    }
+  };
+
+  // ==========================
+  // Load TierAgency (khách sỉ / đại lý)
+  // ==========================
+  const loadAgencyTiers = async () => {
+    setAgencyLoading(true);
+    try {
+      const res = await api.get("/tier-agencies");
+      const items: TierAgencyDTO[] = res.data?.items || [];
+      setAgencyTiers(Array.isArray(items) ? items : []);
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || "Không tải được danh sách cấp sỉ");
+    } finally {
+      setAgencyLoading(false);
+    }
+  };
+
+  const openCreateAgencyTier = () => {
+    setAgencyModalMode("create");
+    setEditingAgencyTier(null);
+    agencyForm.resetFields();
+    agencyForm.setFieldsValue({
+      code: "",
+      name: "",
+      level: 0,
+      isActive: true,
+      note: "",
+    });
+    setAgencyModalOpen(true);
+  };
+
+  const openEditAgencyTier = (t: TierAgencyDTO) => {
+    setAgencyModalMode("edit");
+    setEditingAgencyTier(t);
+    agencyForm.resetFields();
+    agencyForm.setFieldsValue({
+      code: t.code || "",
+      name: t.name || "",
+      level: Number(t.level || 0),
+      isActive: t.isActive !== false,
+      note: t.note || "",
+    });
+    setAgencyModalOpen(true);
+  };
+
+  const submitAgencyTierModal = async () => {
+    try {
+      const v = await agencyForm.validateFields();
+      setAgencyLoading(true);
+
+      const payload: any = {
+        code: String(v.code || "").toUpperCase().trim(),
+        name: String(v.name || "").trim(),
+        level: Number(v.level || 0),
+        isActive: !!v.isActive,
+        note: String(v.note || ""),
+      };
+
+      if (agencyModalMode === "create") {
+        const r = await api.post("/tier-agencies", payload);
+        if (!r.data?.ok) throw new Error(r.data?.message || "CREATE_AGENCY_TIER_FAILED");
+        message.success("Đã tạo cấp sỉ");
+      } else {
+        if (!editingAgencyTier?._id) throw new Error("Missing agency tier id");
+        const r = await api.put(`/tier-agencies/${editingAgencyTier._id}`, payload);
+        if (!r.data?.ok) throw new Error(r.data?.message || "UPDATE_AGENCY_TIER_FAILED");
+        message.success("Đã cập nhật cấp sỉ");
+      }
+
+      setAgencyModalOpen(false);
+      await loadAgencyTiers();
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      message.error(e?.response?.data?.message || e?.message || "Thao tác cấp sỉ thất bại");
+    } finally {
+      setAgencyLoading(false);
+    }
+  };
+
+  const toggleAgencyTier = async (t: TierAgencyDTO) => {
+    try {
+      setAgencyLoading(true);
+      const r = await api.patch(`/tier-agencies/${t._id}/toggle`);
+      if (!r.data?.ok) throw new Error(r.data?.message || "TOGGLE_FAILED");
+      message.success("Đã cập nhật trạng thái");
+      await loadAgencyTiers();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || "Toggle thất bại");
+    } finally {
+      setAgencyLoading(false);
+    }
+  };
+
+  const deleteAgencyTier = async (t: TierAgencyDTO) => {
+    try {
+      setAgencyLoading(true);
+      const r = await api.delete(`/tier-agencies/${t._id}`);
+      if (!r.data?.ok) throw new Error(r.data?.message || "DELETE_FAILED");
+      message.success("Đã xoá cấp sỉ");
+      await loadAgencyTiers();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || "Xoá thất bại");
+    } finally {
+      setAgencyLoading(false);
     }
   };
 
@@ -788,6 +921,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
   useEffect(() => {
     loadBranches();
     loadLoyalty();
+    loadAgencyTiers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1122,8 +1256,9 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
               loadData();
               loadBranches();
               loadLoyalty();
+              loadAgencyTiers();
             }}
-            disabled={loading || branchLoading}
+            disabled={loading || branchLoading || loyaltyLoading || agencyLoading}
           >
             Tải lại
           </Button>
@@ -1287,7 +1422,12 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
                     <Input.TextArea rows={2} placeholder="VD: Đổi trả trong 7 ngày (còn hoá đơn)..." />
                   </Form.Item>
 
-                  <Alert type="info" showIcon message="Gợi ý" description="Với máy in 56mm, tránh nội dung quá dài; QRCode & barcode nên bật/tắt theo mẫu bill bạn đang dùng." />
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="Gợi ý"
+                    description="Với máy in 56mm, tránh nội dung quá dài; QRCode & barcode nên bật/tắt theo mẫu bill bạn đang dùng."
+                  />
 
                   <Form.Item name={["receipt", "template"]} hidden>
                     <Input />
@@ -1399,7 +1539,13 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
                           ))}
                         </div>
 
-                        <Alert style={{ marginTop: 12 }} type="info" showIcon message="Mẹo" description="Bill 56mm nên gọn. Bill 80mm có thể hiển thị đầy đủ: Logo, Customer Info, Loyalty, Items, Totals, Payments, Barcode, QR." />
+                        <Alert
+                          style={{ marginTop: 12 }}
+                          type="info"
+                          showIcon
+                          message="Mẹo"
+                          description="Bill 56mm nên gọn. Bill 80mm có thể hiển thị đầy đủ: Logo, Customer Info, Loyalty, Items, Totals, Payments, Barcode, QR."
+                        />
                       </Card>
                     </Col>
 
@@ -1470,7 +1616,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
                       description={
                         <>
                           <div>Bạn đang gặp 404 ở backend (ví dụ: GET /tiers, POST /loyalty-settings/init).</div>
-                          <div>Bấm "Khởi tạo (Init)" sau khi bạn đã tạo route backend tương ứng.</div>
+                          <div>Bấm 'Khởi tạo (Init)' sau khi bạn đã tạo route backend tương ứng.</div>
                         </>
                       }
                     />
@@ -1501,7 +1647,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
                             <Form.Item label="Auto upgrade" name={["loyalty", "setting", "autoUpgrade", "enabled"]} valuePropName="checked">
                               <Switch />
                             </Form.Item>
-                            <Text type="secondary">Nâng hạng theo mốc "Chi tiêu 12 tháng" của từng Tier.</Text>
+                            <Text type="secondary">Nâng hạng theo mốc 'Chi tiêu 12 tháng' của từng Tier.</Text>
                           </Col>
                         </Row>
 
@@ -1684,6 +1830,88 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
                 </>
               ),
             },
+
+            // ===== TAB 4: TierAgency (Khách sỉ / Đại lý) =====
+            {
+              key: "agency",
+              label: "Khách sỉ / Đại lý",
+              children: (
+                <>
+                  <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 12 }}>
+                    <Title level={5} style={{ margin: 0 }}>
+                      Cấp sỉ (TierAgency)
+                    </Title>
+                    <Space>
+                      <Button onClick={loadAgencyTiers} loading={agencyLoading}>
+                        Refresh
+                      </Button>
+                      <Button type="primary" onClick={openCreateAgencyTier}>
+                        Thêm cấp sỉ
+                      </Button>
+                    </Space>
+                  </Space>
+
+                  {agencyTiers.length === 0 ? (
+                    <Alert type="info" showIcon message="Chưa có cấp sỉ" description="Bấm 'Thêm cấp sỉ' để tạo AGENCY_1, AGENCY_2..." />
+                  ) : (
+                    <Row gutter={[16, 16]}>
+                      {agencyTiers
+                        .slice()
+                        .sort((a, b) => Number(a.level || 0) - Number(b.level || 0))
+                        .map((t) => (
+                          <Col key={t._id} xs={24} md={12} lg={8}>
+                            <Card
+                              size="small"
+                              title={
+                                <Space>
+                                  <Text strong>{t.name}</Text>
+                                  <Tag color={t.isActive ? "green" : "default"}>{t.isActive ? "ACTIVE" : "OFF"}</Tag>
+                                </Space>
+                              }
+                              extra={<Text type="secondary">{t.code}</Text>}
+                              actions={[
+                                <Button key="edit" type="link" onClick={() => openEditAgencyTier(t)}>
+                                  Sửa
+                                </Button>,
+                                <Button key="toggle" type="link" onClick={() => toggleAgencyTier(t)} disabled={agencyLoading}>
+                                  {t.isActive ? "Tắt" : "Bật"}
+                                </Button>,
+                                <Popconfirm
+                                  key="del"
+                                  title="Xoá cấp sỉ này?"
+                                  description="Xoá cứng khỏi DB (khuyến nghị chỉ Tắt)."
+                                  okText="Xoá"
+                                  cancelText="Huỷ"
+                                  onConfirm={() => deleteAgencyTier(t)}
+                                >
+                                  <Button type="link" danger>
+                                    Xoá
+                                  </Button>
+                                </Popconfirm>,
+                              ]}
+                            >
+                              <Space direction="vertical" style={{ width: "100%" }} size={6}>
+                                <Text>
+                                  <b>Level:</b> {Number(t.level || 0)}
+                                </Text>
+                                <Text>
+                                  <b>Note:</b> {t.note || "—"}
+                                </Text>
+                                <Alert
+                                  type="info"
+                                  showIcon
+                                  message="Gợi ý"
+                                  description="Bạn có thể dùng level để ưu tiên giá: level thấp hơn = ưu tiên cao hơn (tuỳ bạn định nghĩa)."
+                                />
+                              </Space>
+                            </Card>
+                          </Col>
+                        ))}
+                    </Row>
+                  )}
+                </>
+              ),
+            },
           ]}
         />
 
@@ -1698,6 +1926,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
               loadData();
               loadBranches();
               loadLoyalty();
+              loadAgencyTiers();
             }}
             disabled={loading}
           >
@@ -1923,6 +2152,76 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
                   • thresholdVnd = ngưỡng chi tiêu 12 tháng để <b>lên hạng</b>.
                 </div>
               </div>
+            }
+          />
+        </Form>
+      </Modal>
+
+      {/* ===== TierAgency Modal ===== */}
+      <Modal
+        open={agencyModalOpen}
+        onCancel={() => setAgencyModalOpen(false)}
+        title={agencyModalMode === "create" ? "Thêm cấp sỉ (TierAgency)" : `Sửa cấp sỉ: ${editingAgencyTier?.code || ""}`}
+        okText={agencyModalMode === "create" ? "Tạo" : "Lưu"}
+        cancelText="Huỷ"
+        onOk={submitAgencyTierModal}
+        confirmLoading={agencyLoading}
+        destroyOnClose
+      >
+        <Form form={agencyForm} layout="vertical">
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item
+                label="Code"
+                name="code"
+                rules={[
+                  { required: true, message: "Nhập code" },
+                  { min: 2, message: "Tối thiểu 2 ký tự" },
+                ]}
+              >
+                <Input placeholder="VD: AGENCY_1" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Tên cấp sỉ"
+                name="name"
+                rules={[
+                  { required: true, message: "Nhập tên" },
+                  { min: 2, message: "Tối thiểu 2 ký tự" },
+                ]}
+              >
+                <Input placeholder="VD: Sỉ cấp 1" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Level (sắp xếp/ưu tiên)" name="level">
+                <InputNumber min={0} step={1} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Active" name="isActive" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item label="Note" name="note">
+            <Input.TextArea rows={3} placeholder="Mô tả/điều kiện áp dụng (tuỳ chọn)..." />
+          </Form.Item>
+
+          <Alert
+            type="info"
+            showIcon
+            message="Chuẩn dùng"
+            description={
+              <>
+                • Code nên chuẩn hoá: <b>AGENCY_1</b>, <b>AGENCY_2</b>... <br />
+                • Bạn sẽ dùng TierAgency để map ra bảng giá sỉ theo từng level.
+              </>
             }
           />
         </Form>
