@@ -23,7 +23,7 @@ import {
 } from "antd";
 import type { UploadProps } from "antd";
 import dayjs, { Dayjs } from "dayjs";
-import api from "../../services/api";
+import api from "../../../services/api";
 
 const { Title, Text } = Typography;
 

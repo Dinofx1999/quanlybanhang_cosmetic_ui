@@ -1,10 +1,10 @@
 import React from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "../Sidebar/Sidebar";
-import { logout } from "../../services/authService";
+import { logout } from "../../../services/authService";
 import { LogOut, Store, ChevronDown, Check } from "lucide-react";
-import api from "../../services/api";
-import { getActiveBranchId, setActiveBranchId as persistActiveBranchId } from "../../services/branchContext";
+import api from "../../../services/api";
+import { getActiveBranchId, setActiveBranchId as persistActiveBranchId } from "../../../services/branchContext";
 
 interface User {
   id?: string;

@@ -9,7 +9,7 @@ import {
   ClipboardList,
   Warehouse,
 } from "lucide-react";
-import api from "../../services/api";
+import api from "../../../services/api";
 
 // ===============================
 // Types

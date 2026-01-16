@@ -3,17 +3,17 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { message } from "antd";
 
-import LoginPage from "./components/Auth/LoginPage";
-import Layout from "./components/Layout/Layout";
-import POSSection from "./components/POS/POSSection";
-import OrdersSection from "./components/Orders/OrdersSection";
-import ProductInputSection from "./components/Products/ProductInputSection";
-import InventorySection from "./components/Inventory/InventorySection";
-import WarehouseSection from "./components/Warehouse/WarehouseSection";
-import CustomersSection from "./components/Customers/CustomersSection";
-import RevenueSection from "./components/Revenue/RevenueSection";
-import ProtectedRoute from "./components/Auth/ProtectedRoute";
-import ShopSettings from "./components/ShopSettings/ShopSettings";
+import LoginPage from "./components/POS_ONLINE/Auth/LoginPage";
+import Layout from "./components/POS_ONLINE/Layout/Layout";
+import POSSection from "./components/POS_ONLINE/POS/POSSection";
+import OrdersSection from "./components/POS_ONLINE/Orders/OrdersSection";
+import ProductInputSection from "./components/POS_ONLINE/Products/ProductInputSection";
+import InventorySection from "./components/POS_ONLINE/Inventory/InventorySection";
+import WarehouseSection from "./components/POS_ONLINE/Warehouse/WarehouseSection";
+import CustomersSection from "./components/POS_ONLINE/Customers/CustomersSection";
+import RevenueSection from "./components/POS_ONLINE/Revenue/RevenueSection";
+import ProtectedRoute from "./components/POS_ONLINE/Auth/ProtectedRoute";
+import ShopSettings from "./components/POS_ONLINE/ShopSettings/ShopSettings";
 import { BRANCH_KEY, getPosBranchId } from "./services/branchContext";
 
 import { isAuthenticated, getCurrentUser } from "./services/authService";
