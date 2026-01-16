@@ -19,6 +19,9 @@ import { BRANCH_KEY, getPosBranchId } from "./services/branchContext";
 import { isAuthenticated, getCurrentUser } from "./services/authService";
 import api from "./services/api";
 
+
+import ShopOnlinePage from "./components/ShopOnline/ShopOnlinePage";
+
 // ===============================
 // Types
 // ===============================
@@ -32,7 +35,7 @@ type PriceTierRow = {
   tierId: string; // ObjectId TierAgency
   price: number;
 };
-
+type VariantAttr = { k: string; v: string };
 export interface Product {
   _id: string;
   sku?: string;
@@ -51,6 +54,8 @@ export interface Product {
   thumbnail?: string;
   images?: ProductImage[];
   isActive?: boolean;
+  attributes?: VariantAttr[]; // ✅ NEW (optional)
+  productId?: string; 
 }
 
 export interface OrderItem extends Product {
@@ -188,34 +193,42 @@ const AppInner: React.FC = () => {
           ? String(u?.branchId || "")
           : String(localStorage.getItem(BRANCH_KEY) || posBranchId || "all");
 
-      const params = effective && effective !== "all" ? { branchId: effective } : {};
-      const res = await api.get("/products", { params });
+      const params =
+  effective && effective !== "all"
+    ? { branchId: effective, mode: "pos" } // ✅ IMPORTANT: load variants for POS
+    : { mode: "pos" };
+
+const res = await api.get("/products", { params });
 
       const items = res.data?.items || [];
       const mapped: Product[] = items.map((p: any) => ({
-        _id: String(p._id),
-        sku: p.sku || "",
-        name: p.name || "",
-        categoryId: p.categoryId ? String(p.categoryId) : null,
-        categoryName: p.categoryName || "",
-        price: Number(p.price || 0),
+  _id: String(p._id),                 // ✅ variantId
+  productId: p.productId ? String(p.productId) : undefined, // optional
+  sku: p.sku || "",
+  name: p.name || "",
+  categoryId: p.categoryId ? String(p.categoryId) : null,
+  categoryName: p.categoryName || "",
+  price: Number(p.price || 0),
 
-        // ✅ NEW
-        price_tier: Array.isArray(p.price_tier)
-          ? p.price_tier.map((x: any) => ({
-              tierId: String(x.tierId),
-              price: Number(x.price || 0),
-            }))
-          : [],
+  price_tier: Array.isArray(p.price_tier)
+    ? p.price_tier.map((x: any) => ({
+        tierId: String(x.tierId),
+        price: Number(x.price || 0),
+      }))
+    : [],
 
-        cost: Number(p.cost || 0),
-        brand: p.brand || "",
-        barcode: p.barcode || "",
-        stock: Number(p.stock || 0),
-        thumbnail: p.thumbnail || "",
-        images: Array.isArray(p.images) ? p.images : [],
-        isActive: p.isActive !== false,
-      }));
+  cost: Number(p.cost || 0),
+  brand: p.brand || "",
+  barcode: p.barcode || "",
+  stock: Number(p.stock || 0),
+  thumbnail: p.thumbnail || "",
+  images: Array.isArray(p.images) ? p.images : [],
+  isActive: p.isActive !== false,
+
+  attributes: Array.isArray(p.attributes)
+    ? p.attributes.map((a: any) => ({ k: String(a.k || ""), v: String(a.v || "") }))
+    : [],
+}));
 
       setProductsRaw(mapped);
     } catch (err: any) {
@@ -583,7 +596,7 @@ const AppInner: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />} />
-
+      <Route path="/shop" element={<ShopOnlinePage />} />
       <Route
         path="/"
         element={
@@ -634,7 +647,7 @@ const AppInner: React.FC = () => {
         <Route path="warehouse" element={<WarehouseSection />} />
         <Route path="customers" element={<CustomersSection />} />
         <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
-        <Route path="revenue" element={<RevenueSection products={productsRaw as any} />} />
+        <Route path="shop" element={<ShopOnlinePage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
