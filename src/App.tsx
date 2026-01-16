@@ -20,7 +20,7 @@ import { isAuthenticated, getCurrentUser } from "./services/authService";
 import api from "./services/api";
 
 
-import ShopOnlinePage from "./components/ShopOnline/ShopOnlinePage";
+import ShopOnlinePage from "./components/ShopOnline/ShopHome";
 
 // ===============================
 // Types

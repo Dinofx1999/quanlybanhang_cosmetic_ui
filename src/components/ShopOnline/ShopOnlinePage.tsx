@@ -1,525 +1,418 @@
-import React, { useMemo, useState } from "react";
-import "./shopOnline.css";
+import React, { useState } from 'react';
+import { ShoppingCart, Heart, Search, Menu, Phone, Mail, MapPin, Facebook, Instagram, Youtube, Star, Tag, Zap, Clock } from 'lucide-react';
+import { Badge, Card, Button, Input, Modal } from 'antd';
 
-type Category = {
-  id: string;
-  name: string;
-  desc: string;
-  icon: string; // emoji for demo
-};
-
-type Product = {
-  id: string;
-  name: string;
-  brand: string;
-  categoryId: string;
-  price: number;
-  compareAt?: number;
-  rating: number;
-  sold: number;
-  tags: string[];
-  thumbnail: string;
-  description: string;
-};
-
-type CartItem = { product: Product; qty: number };
-
-const money = (n: number) => n.toLocaleString("vi-VN") + "₫";
-
-const CATEGORIES: Category[] = [
-  { id: "skincare", name: "Chăm sóc da", desc: "Serum • Kem dưỡng • Toner", icon: "✨" },
-  { id: "suncare", name: "Chống nắng", desc: "SPF • PA++++ • Body/Face", icon: "☀️" },
-  { id: "makeup", name: "Trang điểm", desc: "Son • Nền • Phấn", icon: "💄" },
-  { id: "haircare", name: "Chăm sóc tóc", desc: "Dầu gội • Ủ • Dưỡng", icon: "💇‍♀️" },
-  { id: "bodycare", name: "Chăm sóc body", desc: "Tắm • Dưỡng thể", icon: "🧴" },
-  { id: "perfume", name: "Nước hoa", desc: "EDP • Mini • Gift", icon: "🌸" },
-];
-
-const PRODUCTS: Product[] = [
-  {
-    id: "p1",
-    name: "Serum Niacinamide 10% + Zinc 1%",
-    brand: "The Ordinary",
-    categoryId: "skincare",
-    price: 289000,
-    compareAt: 349000,
-    rating: 4.7,
-    sold: 1520,
-    tags: ["Best-seller", "Giảm dầu"],
-    thumbnail:
-      "https://images.unsplash.com/photo-1612810806695-30f7a8258391?auto=format&fit=crop&w=1200&q=80",
-    description: "Hỗ trợ giảm dầu, se lỗ chân lông, làm đều màu da.",
-  },
-  {
-    id: "p2",
-    name: "Kem chống nắng SPF50+ PA++++",
-    brand: "La Roche-Posay",
-    categoryId: "suncare",
-    price: 399000,
-    rating: 4.8,
-    sold: 2310,
-    tags: ["Hot", "Mỏng nhẹ"],
-    thumbnail:
-      "https://images.unsplash.com/photo-1611930022073-84f6f3f3c58f?auto=format&fit=crop&w=1200&q=80",
-    description: "Chống nắng phổ rộng, kết cấu mỏng nhẹ, không để lại vệt trắng.",
-  },
-  {
-    id: "p3",
-    name: "Son kem lì Velvet Lip Cream",
-    brand: "3CE",
-    categoryId: "makeup",
-    price: 265000,
-    compareAt: 320000,
-    rating: 4.6,
-    sold: 980,
-    tags: ["New", "Velvet"],
-    thumbnail:
-      "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=1200&q=80",
-    description: "Chất son mịn như nhung, bám màu tốt, không khô môi.",
-  },
-  {
-    id: "p4",
-    name: "Sữa tắm hương hoa trắng",
-    brand: "Dove",
-    categoryId: "bodycare",
-    price: 129000,
-    rating: 4.4,
-    sold: 540,
-    tags: ["Dịu nhẹ"],
-    thumbnail:
-      "https://images.unsplash.com/photo-1585232351009-aa87416fca90?auto=format&fit=crop&w=1200&q=80",
-    description: "Làm sạch dịu nhẹ, hỗ trợ dưỡng ẩm, hương thơm thư giãn.",
-  },
-  {
-    id: "p5",
-    name: "Dầu gội phục hồi tóc hư tổn",
-    brand: "TSUBAKI",
-    categoryId: "haircare",
-    price: 189000,
-    rating: 4.5,
-    sold: 770,
-    tags: ["Repair"],
-    thumbnail:
-      "https://images.unsplash.com/photo-1522337660859-02fbefca4702?auto=format&fit=crop&w=1200&q=80",
-    description: "Phù hợp tóc khô xơ, hư tổn do uốn/nhuộm.",
-  },
-  {
-    id: "p6",
-    name: "Nước hoa mini Eau de Parfum 10ml",
-    brand: "Jo Malone",
-    categoryId: "perfume",
-    price: 590000,
-    rating: 4.7,
-    sold: 320,
-    tags: ["Gift", "Mini"],
-    thumbnail:
-      "https://images.unsplash.com/photo-1547887537-6158d64c35b3?auto=format&fit=crop&w=1200&q=80",
-    description: "Phiên bản mini tiện mang theo. Mùi hương thanh lịch.",
-  },
-];
-
-function Stars({ value }: { value: number }) {
-  const full = Math.floor(value);
-  const half = value - full >= 0.5;
+// Header Component
+const Header = ({ cartCount }: { cartCount: number }) => {
   return (
-    <div className="stars" title={value.toFixed(1)}>
-      {Array.from({ length: 5 }).map((_, i) => {
-        const idx = i + 1;
-        const filled = idx <= full;
-        const halfHere = !filled && half && idx === full + 1;
-        return (
-          <span key={i} className={`star ${filled ? "on" : halfHere ? "half" : ""}`}>★</span>
-        );
-      })}
-      <span className="starsText">{value.toFixed(1)}</span>
-    </div>
-  );
-}
-
-function Drawer({
-  open,
-  title,
-  onClose,
-  children,
-  footer,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
-}) {
-  return (
-    <>
-      <div className={`overlay ${open ? "show" : ""}`} onClick={onClose} />
-      <aside className={`drawer ${open ? "open" : ""}`}>
-        <div className="drawerHeader">
-          <div className="drawerTitle">{title}</div>
-          <button className="iconBtn" onClick={onClose} aria-label="close">✕</button>
-        </div>
-        <div className="drawerBody">{children}</div>
-        {footer ? <div className="drawerFooter">{footer}</div> : null}
-      </aside>
-    </>
-  );
-}
-
-export default function App() {
-  const [query, setQuery] = useState("");
-  const [activeCat, setActiveCat] = useState<string>("all");
-  const [sort, setSort] = useState<"popular" | "price_asc" | "price_desc" | "rating">("popular");
-  const [onlySale, setOnlySale] = useState(false);
-
-  const [cartOpen, setCartOpen] = useState(false);
-  const [cart, setCart] = useState<CartItem[]>([]);
-
-  const cartCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
-  const subtotal = useMemo(() => cart.reduce((s, it) => s + it.qty * it.product.price, 0), [cart]);
-  const shipping = useMemo(() => (subtotal >= 500000 || subtotal === 0 ? 0 : 25000), [subtotal]);
-  const discount = useMemo(() => (cartCount >= 3 ? Math.round(subtotal * 0.05) : 0), [cartCount, subtotal]);
-  const total = Math.max(0, subtotal + shipping - discount);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let list = PRODUCTS.slice();
-
-    if (activeCat !== "all") list = list.filter((p) => p.categoryId === activeCat);
-
-    if (q) {
-      list = list.filter((p) => {
-        const cat = CATEGORIES.find((c) => c.id === p.categoryId)?.name ?? "";
-        const hay = `${p.name} ${p.brand} ${cat} ${p.tags.join(" ")}`.toLowerCase();
-        return hay.includes(q);
-      });
-    }
-
-    if (onlySale) list = list.filter((p) => !!p.compareAt && p.compareAt > p.price);
-
-    switch (sort) {
-      case "popular":
-        list.sort((a, b) => b.sold - a.sold);
-        break;
-      case "price_asc":
-        list.sort((a, b) => a.price - b.price);
-        break;
-      case "price_desc":
-        list.sort((a, b) => b.price - a.price);
-        break;
-      case "rating":
-        list.sort((a, b) => b.rating - a.rating);
-        break;
-    }
-    return list;
-  }, [query, activeCat, sort, onlySale]);
-
-  function addToCart(p: Product, qty = 1) {
-    setCart((prev) => {
-      const idx = prev.findIndex((x) => x.product.id === p.id);
-      if (idx >= 0) {
-        const next = prev.slice();
-        next[idx] = { ...next[idx], qty: next[idx].qty + qty };
-        return next;
-      }
-      return [...prev, { product: p, qty }];
-    });
-    setCartOpen(true);
-  }
-
-  function inc(id: string) {
-    setCart((prev) => prev.map((x) => (x.product.id === id ? { ...x, qty: x.qty + 1 } : x)));
-  }
-  function dec(id: string) {
-    setCart((prev) =>
-      prev
-        .map((x) => (x.product.id === id ? { ...x, qty: Math.max(1, x.qty - 1) } : x))
-    );
-  }
-  function remove(id: string) {
-    setCart((prev) => prev.filter((x) => x.product.id !== id));
-  }
-
-  return (
-    <div className="app">
-      {/* Topbar */}
-      <div className="topbar">
-        <div className="container topbarInner">
-          <div className="topbarLeft">
-            <span className="dotPink" />
-            Freeship đơn từ <b>500k</b> • Đổi trả 7 ngày • Chính hãng
+    <header className="bg-gradient-to-r from-pink-500 to-purple-600 text-white sticky top-0 z-50 shadow-lg">
+      <div className="container mx-auto px-4">
+        <div className="flex items-center justify-between py-4">
+          <div className="flex items-center space-x-8">
+            <h1 className="text-2xl font-bold">BeautyShop</h1>
+            <nav className="hidden md:flex space-x-6">
+              <a href="#home" className="hover:text-pink-200 transition">Trang chủ</a>
+              <a href="#categories" className="hover:text-pink-200 transition">Danh mục</a>
+              <a href="#flashsale" className="hover:text-pink-200 transition">Flash Sale</a>
+              <a href="#products" className="hover:text-pink-200 transition">Sản phẩm</a>
+            </nav>
           </div>
-          <div className="topbarRight">
-            <a href="#!" onClick={(e) => e.preventDefault()}>Hỗ trợ</a>
-            <span className="sep">•</span>
-            <a href="#!" onClick={(e) => e.preventDefault()}>Tra cứu đơn</a>
+          
+          <div className="flex items-center space-x-4">
+            <div className="hidden md:block">
+              <Input
+                prefix={<Search className="w-4 h-4 text-gray-400" />}
+                placeholder="Tìm kiếm sản phẩm..."
+                className="w-64 rounded-full"
+              />
+            </div>
+            <Button type="text" icon={<Heart className="w-5 h-5" />} className="text-white" />
+            <Badge count={cartCount} className="cursor-pointer">
+              <ShoppingCart className="w-6 h-6 text-white" />
+            </Badge>
+            <Button type="text" icon={<Menu className="w-6 h-6 md:hidden" />} className="text-white" />
           </div>
         </div>
       </div>
+    </header>
+  );
+};
 
-      {/* Header */}
-      <header className="header">
-        <div className="container headerInner">
-          <div className="brand">
-            <div className="logo">BA</div>
-            <div className="brandText">
-              <div className="brandName">Bảo Ân Cosmetics</div>
-              <div className="brandSub">Beauty that feels like you</div>
-            </div>
-          </div>
-
-          <div className="searchWrap">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Tìm sản phẩm, thương hiệu…"
-              className="searchInput"
-            />
-          </div>
-
-          <button className="cartBtn" onClick={() => setCartOpen(true)}>
-            <span className="cartIcon">🛍️</span>
-            <span>Giỏ</span>
-            <span className="cartBadge">{cartCount}</span>
-          </button>
-        </div>
-
-        {/* Category menu */}
-        <div className="container catMenu">
-          <button
-            className={`catPill ${activeCat === "all" ? "active" : ""}`}
-            onClick={() => setActiveCat("all")}
-          >
-            🏷️ Tất cả
-          </button>
-          {CATEGORIES.map((c) => (
-            <button
-              key={c.id}
-              className={`catPill ${activeCat === c.id ? "active" : ""}`}
-              onClick={() => setActiveCat(c.id)}
-            >
-              {c.icon} {c.name}
-            </button>
-          ))}
-        </div>
-      </header>
-
-      {/* Hero */}
-      <section className="hero">
-        <div className="container heroInner">
-          <div className="heroLeft">
-            <div className="heroBadge">💗 New Year Sale</div>
-            <h1>Mỹ phẩm chuẩn xịn — mua là đẹp</h1>
-            <p>
-              Giao diện store Online (trắng/hồng) có danh mục, tìm kiếm, sắp xếp, giỏ hàng. Bạn thay dữ liệu API là chạy.
+// Hero Banner Component
+const HeroBanner = () => {
+  return (
+    <div className="bg-gradient-to-r from-pink-100 to-purple-100 py-16">
+      <div className="container mx-auto px-4">
+        <div className="flex flex-col md:flex-row items-center justify-between">
+          <div className="md:w-1/2 mb-8 md:mb-0">
+            <h2 className="text-5xl font-bold text-gray-800 mb-4">
+              Làm đẹp mỗi ngày
+            </h2>
+            <p className="text-xl text-gray-600 mb-6">
+              Khám phá bộ sưu tập mỹ phẩm cao cấp với ưu đãi đặc biệt
             </p>
-            <div className="heroActions">
-              <button className="btn btn-primary" onClick={() => window.scrollTo({ top: 640, behavior: "smooth" })}>
-                Mua ngay
-              </button>
-              <button className="btn btn-ghost" onClick={() => setOnlySale((v) => !v)}>
-                {onlySale ? "Bỏ lọc giảm giá" : "Chỉ xem giảm giá"}
-              </button>
-            </div>
-            <div className="heroChips">
-              <span className="chip">✅ Chính hãng</span>
-              <span className="chip">⚡ Giao nhanh</span>
-              <span className="chip">🎁 Quà tặng kèm</span>
-            </div>
+            <Button type="primary" size="large" className="bg-pink-500 hover:bg-pink-600 border-none rounded-full px-8">
+              Khám phá ngay
+            </Button>
           </div>
-
-          <div className="heroRight">
-            <div className="heroCard">
-              <div className="heroCardTop">
-                <div className="heroMini">Best picks</div>
-                <div className="heroMini ghost">Glow routine</div>
-              </div>
-              <img
-                className="heroImg"
-                alt="beauty"
-                src="https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1600&q=80"
-              />
+          <div className="md:w-1/2 flex justify-center">
+            <div className="w-80 h-80 bg-gradient-to-br from-pink-300 to-purple-300 rounded-full flex items-center justify-center">
+              {/* <span className="text-6xl">💄</span> */}
+              <img alt="logo" className="w-200 h-200 object-cover rounded-full" src="http://localhost:9009/uploads/branches/1768104874836-1068c7d025f7cf40e9748569.jpg"></img>
             </div>
           </div>
         </div>
-      </section>
-
-      {/* Category grid */}
-      <section className="container catGridWrap">
-        <div className="sectionHead">
-          <div>
-            <div className="sectionTitle">Danh mục sản phẩm</div>
-            <div className="sectionSub">Chọn nhanh theo nhu cầu</div>
-          </div>
-
-          <div className="tools">
-            <label className="toggle">
-              <input type="checkbox" checked={onlySale} onChange={(e) => setOnlySale(e.target.checked)} />
-              <span>Giảm giá</span>
-            </label>
-
-            <select className="select" value={sort} onChange={(e) => setSort(e.target.value as any)}>
-              <option value="popular">Phổ biến</option>
-              <option value="rating">Đánh giá cao</option>
-              <option value="price_asc">Giá tăng dần</option>
-              <option value="price_desc">Giá giảm dần</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="catGrid">
-          <button
-            className={`catCard ${activeCat === "all" ? "active" : ""}`}
-            onClick={() => setActiveCat("all")}
-          >
-            <div className="catIcon">🏷️</div>
-            <div className="catName">Tất cả</div>
-            <div className="catDesc">Xem toàn bộ sản phẩm</div>
-          </button>
-
-          {CATEGORIES.map((c) => (
-            <button
-              key={c.id}
-              className={`catCard ${activeCat === c.id ? "active" : ""}`}
-              onClick={() => setActiveCat(c.id)}
-            >
-              <div className="catIcon">{c.icon}</div>
-              <div className="catName">{c.name}</div>
-              <div className="catDesc">{c.desc}</div>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* Product grid */}
-      <main className="container main">
-        <div className="productHead">
-          <div className="productTitle">
-            {activeCat === "all"
-              ? "Tất cả sản phẩm"
-              : CATEGORIES.find((c) => c.id === activeCat)?.name}
-          </div>
-          <div className="productCount">{filtered.length} sản phẩm</div>
-        </div>
-
-        <section className="grid">
-          {filtered.map((p) => {
-            const isSale = !!p.compareAt && p.compareAt > p.price;
-            const salePct = isSale ? Math.round(((p.compareAt! - p.price) / p.compareAt!) * 100) : 0;
-
-            return (
-              <article key={p.id} className="card">
-                <div className="cardMedia">
-                  <img src={p.thumbnail} alt={p.name} />
-                  <div className="cardBadges">
-                    {isSale ? <span className="badge badge-pink">- {salePct}%</span> : null}
-                    {p.tags.slice(0, 1).map((t) => (
-                      <span key={t} className="badge badge-soft">{t}</span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="cardBody">
-                  <div className="cardTitle" title={p.name}>{p.name}</div>
-                  <div className="cardBrand">{p.brand}</div>
-
-                  <div className="cardMeta">
-                    <Stars value={p.rating} />
-                    <span className="sold">Đã bán {p.sold}</span>
-                  </div>
-
-                  <div className="priceRow">
-                    <div className="price">{money(p.price)}</div>
-                    {isSale ? <div className="compare">{money(p.compareAt!)}</div> : null}
-                  </div>
-
-                  <button className="btn btn-primary wfull" onClick={() => addToCart(p, 1)}>
-                    Thêm vào giỏ
-                  </button>
-
-                  <div className="tinyNote">{p.description}</div>
-                </div>
-              </article>
-            );
-          })}
-        </section>
-
-        {filtered.length === 0 ? (
-          <div className="empty">
-            <div className="emptyTitle">Không tìm thấy sản phẩm</div>
-            <div className="emptyDesc">Thử đổi danh mục hoặc từ khóa.</div>
-          </div>
-        ) : null}
-      </main>
-
-      {/* Cart */}
-      <Drawer
-        open={cartOpen}
-        title={`Giỏ hàng (${cartCount})`}
-        onClose={() => setCartOpen(false)}
-        footer={
-          <div className="cartFooter">
-            <div className="sumRow"><span>Tạm tính</span><b>{money(subtotal)}</b></div>
-            <div className="sumRow"><span>Vận chuyển</span><b>{shipping === 0 ? "Miễn phí" : money(shipping)}</b></div>
-            <div className="sumRow"><span>Giảm giá</span><b className="pink">- {money(discount)}</b></div>
-            <div className="sumTotal"><span>Tổng</span><b>{money(total)}</b></div>
-            <button
-              className="btn btn-primary wfull"
-              disabled={cart.length === 0}
-              onClick={() => alert("Demo: nối API /orders ở đây")}
-            >
-              Thanh toán
-            </button>
-            <div className="tiny">
-              {subtotal > 0 && subtotal < 500000 ? (
-                <>Mua thêm <b>{money(500000 - subtotal)}</b> để freeship.</>
-              ) : (
-                <>Freeship đơn từ 500k.</>
-              )}
-            </div>
-          </div>
-        }
-      >
-        {cart.length === 0 ? (
-          <div className="cartEmpty">
-            <div className="emptyTitle">Giỏ hàng trống</div>
-            <div className="emptyDesc">Thêm sản phẩm để bắt đầu.</div>
-          </div>
-        ) : (
-          <div className="cartList">
-            {cart.map((it) => (
-              <div key={it.product.id} className="cartItem">
-                <img className="cartThumb" src={it.product.thumbnail} alt={it.product.name} />
-                <div className="cartInfo">
-                  <div className="cartName">{it.product.name}</div>
-                  <div className="cartBrand">{it.product.brand}</div>
-                  <div className="cartPrice">{money(it.product.price)}</div>
-                </div>
-
-                <div className="qtyBox">
-                  <button className="qtyBtn" onClick={() => dec(it.product.id)}>−</button>
-                  <div className="qty">{it.qty}</div>
-                  <button className="qtyBtn" onClick={() => inc(it.product.id)}>+</button>
-                </div>
-
-                <button className="iconBtn" onClick={() => remove(it.product.id)}>🗑️</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Drawer>
-
-      <footer className="footer">
-        <div className="container footerInner">
-          <div>
-            <div className="footerTitle">Bảo Ân Cosmetics</div>
-            <div className="footerText">Store UI • White/Pink • ReactJS</div>
-          </div>
-          <div className="footerLinks">
-            <a href="#!" onClick={(e) => e.preventDefault()}>Chính sách</a>
-            <a href="#!" onClick={(e) => e.preventDefault()}>Đổi trả</a>
-            <a href="#!" onClick={(e) => e.preventDefault()}>Liên hệ</a>
-          </div>
-        </div>
-      </footer>
+      </div>
     </div>
   );
-}
+};
+
+// Categories Component
+const Categories = () => {
+  const categories = [
+    { id: 1, name: 'Chăm sóc da', icon: '🧴', color: 'from-pink-400 to-pink-500' },
+    { id: 2, name: 'Trang điểm', icon: '💄', color: 'from-purple-400 to-purple-500' },
+    { id: 3, name: 'Dưỡng môi', icon: '💋', color: 'from-red-400 to-red-500' },
+    { id: 4, name: 'Nước hoa', icon: '🌸', color: 'from-blue-400 to-blue-500' },
+    { id: 5, name: 'Chăm sóc tóc', icon: '💆', color: 'from-green-400 to-green-500' },
+    { id: 6, name: 'Phụ kiện', icon: '✨', color: 'from-yellow-400 to-yellow-500' },
+  ];
+
+  return (
+    <section id="categories" className="py-16 bg-white">
+      <div className="container mx-auto px-4">
+        <h2 className="text-3xl font-bold text-center mb-12 text-gray-800">
+          Danh Mục Sản Phẩm
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+          {categories.map((category) => (
+            <div
+              key={category.id}
+              className={`bg-gradient-to-br ${category.color} rounded-2xl p-6 text-center cursor-pointer transform hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl`}
+            >
+              <div className="text-5xl mb-3">{category.icon}</div>
+              <h3 className="text-white font-semibold text-sm">{category.name}</h3>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// Voucher Component
+const VoucherSection = () => {
+  const vouchers = [
+    { id: 1, code: 'BEAUTY20', discount: '20%', minOrder: '500k', expiry: '31/01/2026' },
+    { id: 2, code: 'FREESHIP', discount: 'Freeship', minOrder: '300k', expiry: '28/02/2026' },
+    { id: 3, code: 'FIRST50', discount: '50k', minOrder: '0đ', expiry: '15/02/2026' },
+  ];
+
+  return (
+    <section className="py-12 bg-gradient-to-r from-orange-50 to-pink-50">
+      <div className="container mx-auto px-4">
+        <div className="flex items-center justify-center mb-8">
+          <Tag className="w-8 h-8 text-orange-500 mr-3" />
+          <h2 className="text-3xl font-bold text-gray-800">Mã Giảm Giá Hot</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {vouchers.map((voucher) => (
+            <div
+              key={voucher.id}
+              className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-dashed border-orange-300 hover:border-orange-500 transition-all cursor-pointer transform hover:scale-105"
+            >
+              <div className="bg-gradient-to-r from-orange-400 to-pink-400 p-4 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Mã giảm giá</p>
+                    <p className="text-2xl font-bold">{voucher.code}</p>
+                  </div>
+                  <div className="text-3xl font-bold">{voucher.discount}</div>
+                </div>
+              </div>
+              <div className="p-4">
+                <p className="text-sm text-gray-600 mb-2">
+                  Đơn tối thiểu: <span className="font-semibold">{voucher.minOrder}</span>
+                </p>
+                <p className="text-sm text-gray-600 mb-3">
+                  HSD: <span className="font-semibold">{voucher.expiry}</span>
+                </p>
+                <Button type="primary" block className="bg-orange-500 hover:bg-orange-600 border-none rounded-lg">
+                  Sao chép mã
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// Flash Sale Component
+const FlashSale = () => {
+  const flashSaleProducts = [
+    { id: 1, name: 'Serum Vitamin C', price: 299000, oldPrice: 599000, image: '🧪', sold: 234 },
+    { id: 2, name: 'Son Kem Lì', price: 129000, oldPrice: 259000, image: '💄', sold: 567 },
+    { id: 3, name: 'Kem Chống Nắng', price: 189000, oldPrice: 349000, image: '🧴', sold: 423 },
+    { id: 4, name: 'Mặt Nạ Dưỡng Da', price: 149000, oldPrice: 299000, image: '🎭', sold: 678 },
+  ];
+
+  const [timeLeft, setTimeLeft] = useState({ hours: 2, minutes: 34, seconds: 56 });
+
+  return (
+    <section id="flashsale" className="py-16 bg-red-50">
+      <div className="container mx-auto px-4">
+        <div className="bg-gradient-to-r from-red-500 to-pink-500 rounded-2xl p-6 mb-8 text-white shadow-xl">
+          <div className="flex flex-col md:flex-row items-center justify-between">
+            <div className="flex items-center mb-4 md:mb-0">
+              <Zap className="w-10 h-10 mr-3 animate-pulse" />
+              <div>
+                <h2 className="text-3xl font-bold">FLASH SALE</h2>
+                <p className="text-sm opacity-90">Giảm giá sốc - Số lượng có hạn</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Clock className="w-6 h-6" />
+              <div className="flex space-x-2">
+                <div className="bg-white text-red-500 px-3 py-2 rounded-lg font-bold text-xl">
+                  {String(timeLeft.hours).padStart(2, '0')}
+                </div>
+                <span className="text-2xl">:</span>
+                <div className="bg-white text-red-500 px-3 py-2 rounded-lg font-bold text-xl">
+                  {String(timeLeft.minutes).padStart(2, '0')}
+                </div>
+                <span className="text-2xl">:</span>
+                <div className="bg-white text-red-500 px-3 py-2 rounded-lg font-bold text-xl">
+                  {String(timeLeft.seconds).padStart(2, '0')}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          {flashSaleProducts.map((product) => (
+            <div
+              key={product.id}
+              className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-2xl transition-all cursor-pointer transform hover:scale-105"
+            >
+              <div className="relative">
+                <div className="h-48 bg-gradient-to-br from-pink-100 to-purple-100 flex items-center justify-center text-6xl">
+                  {product.image}
+                </div>
+                <div className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold">
+                  -{Math.round((1 - product.price / product.oldPrice) * 100)}%
+                </div>
+              </div>
+              <div className="p-4">
+                <h3 className="font-semibold text-gray-800 mb-2 truncate">{product.name}</h3>
+                <div className="flex items-center space-x-2 mb-2">
+                  <span className="text-xl font-bold text-red-500">
+                    {product.price.toLocaleString()}đ
+                  </span>
+                  <span className="text-sm text-gray-400 line-through">
+                    {product.oldPrice.toLocaleString()}đ
+                  </span>
+                </div>
+                <div className="mb-3">
+                  <div className="flex justify-between text-xs text-gray-600 mb-1">
+                    <span>Đã bán {product.sold}</span>
+                    <span>78%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="bg-red-500 h-2 rounded-full" style={{ width: '78%' }}></div>
+                  </div>
+                </div>
+                <Button type="primary" danger block className="rounded-lg">
+                  Mua ngay
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// Products Component
+const ProductsSection = ({ onAddToCart }: { onAddToCart: (product: any) => void }) => {
+  const products = [
+    { id: 1, name: 'Kem Dưỡng Ẩm La Roche-Posay', price: 450000, rating: 4.8, reviews: 234, image: '🧴', category: 'Chăm sóc da' },
+    { id: 2, name: 'Phấn Nước Cushion Laneige', price: 680000, rating: 4.9, reviews: 456, image: '💄', category: 'Trang điểm' },
+    { id: 3, name: 'Serum Retinol The Ordinary', price: 380000, rating: 4.7, reviews: 189, image: '🧪', category: 'Chăm sóc da' },
+    { id: 4, name: 'Son Thỏi MAC Ruby Woo', price: 590000, rating: 4.9, reviews: 567, image: '💋', category: 'Trang điểm' },
+    { id: 5, name: 'Nước Tẩy Trang Bioderma', price: 320000, rating: 4.8, reviews: 890, image: '💧', category: 'Chăm sóc da' },
+    { id: 6, name: 'Kem Chống Nắng Anessa', price: 550000, rating: 4.9, reviews: 345, image: '☀️', category: 'Chăm sóc da' },
+    { id: 7, name: 'Nước Hoa Chanel No.5', price: 2500000, rating: 5.0, reviews: 123, image: '🌸', category: 'Nước hoa' },
+    { id: 8, name: 'Mặt Nạ Innisfree Green Tea', price: 180000, rating: 4.6, reviews: 678, image: '🎭', category: 'Chăm sóc da' },
+  ];
+
+  return (
+    <section id="products" className="py-16 bg-gray-50">
+      <div className="container mx-auto px-4">
+        <h2 className="text-3xl font-bold text-center mb-12 text-gray-800">
+          Sản Phẩm Nổi Bật
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {products.map((product) => (
+            <div
+              key={product.id}
+              className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all cursor-pointer group"
+            >
+              <div className="relative overflow-hidden">
+                <div className="h-56 bg-gradient-to-br from-pink-100 to-purple-100 flex items-center justify-center text-7xl group-hover:scale-110 transition-transform">
+                  {product.image}
+                </div>
+                <Button
+                  type="text"
+                  icon={<Heart className="w-5 h-5" />}
+                  className="absolute top-2 right-2 bg-white rounded-full hover:bg-pink-100 hover:text-pink-500"
+                />
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent p-2">
+                  <span className="text-white text-xs bg-pink-500 px-2 py-1 rounded-full">
+                    {product.category}
+                  </span>
+                </div>
+              </div>
+              <div className="p-4">
+                <h3 className="font-semibold text-gray-800 mb-2 truncate">{product.name}</h3>
+                <div className="flex items-center mb-2">
+                  <div className="flex text-yellow-400">
+                    {[...Array(5)].map((_, i) => (
+                      <Star key={i} className="w-4 h-4 fill-current" />
+                    ))}
+                  </div>
+                  <span className="text-sm text-gray-600 ml-2">
+                    {product.rating} ({product.reviews})
+                  </span>
+                </div>
+                <div className="text-2xl font-bold text-pink-600 mb-3">
+                  {product.price.toLocaleString()}đ
+                </div>
+                <Button
+                  type="primary"
+                  block
+                  icon={<ShoppingCart className="w-4 h-4" />}
+                  onClick={() => onAddToCart(product)}
+                  className="bg-gradient-to-r from-pink-500 to-purple-500 border-none rounded-lg hover:from-pink-600 hover:to-purple-600"
+                >
+                  Thêm vào giỏ
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// Footer Component
+const Footer = () => {
+  return (
+    <footer className="bg-gray-800 text-white py-12">
+      <div className="container mx-auto px-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+          <div>
+            <h3 className="text-2xl font-bold mb-4 text-pink-400">BeautyShop</h3>
+            <p className="text-gray-300 mb-4">
+              Cửa hàng mỹ phẩm uy tín, chất lượng hàng đầu Việt Nam
+            </p>
+            <div className="flex space-x-4">
+              <Facebook className="w-6 h-6 cursor-pointer hover:text-pink-400 transition" />
+              <Instagram className="w-6 h-6 cursor-pointer hover:text-pink-400 transition" />
+              <Youtube className="w-6 h-6 cursor-pointer hover:text-pink-400 transition" />
+            </div>
+          </div>
+          
+          <div>
+            <h4 className="text-lg font-semibold mb-4">Về chúng tôi</h4>
+            <ul className="space-y-2 text-gray-300">
+              <li><a href="#" className="hover:text-pink-400 transition">Giới thiệu</a></li>
+              <li><a href="#" className="hover:text-pink-400 transition">Tuyển dụng</a></li>
+              <li><a href="#" className="hover:text-pink-400 transition">Tin tức</a></li>
+              <li><a href="#" className="hover:text-pink-400 transition">Hệ thống cửa hàng</a></li>
+            </ul>
+          </div>
+          
+          <div>
+            <h4 className="text-lg font-semibold mb-4">Chính sách</h4>
+            <ul className="space-y-2 text-gray-300">
+              <li><a href="#" className="hover:text-pink-400 transition">Chính sách đổi trả</a></li>
+              <li><a href="#" className="hover:text-pink-400 transition">Chính sách bảo mật</a></li>
+              <li><a href="#" className="hover:text-pink-400 transition">Điều khoản sử dụng</a></li>
+              <li><a href="#" className="hover:text-pink-400 transition">Hướng dẫn mua hàng</a></li>
+            </ul>
+          </div>
+          
+          <div>
+            <h4 className="text-lg font-semibold mb-4">Liên hệ</h4>
+            <ul className="space-y-3 text-gray-300">
+              <li className="flex items-center">
+                <MapPin className="w-5 h-5 mr-2 text-pink-400" />
+                123 Đường ABC, Quận 1, TP.HCM
+              </li>
+              <li className="flex items-center">
+                <Phone className="w-5 h-5 mr-2 text-pink-400" />
+                0123 456 789
+              </li>
+              <li className="flex items-center">
+                <Mail className="w-5 h-5 mr-2 text-pink-400" />
+                support@beautyshop.vn
+              </li>
+            </ul>
+          </div>
+        </div>
+        
+        <div className="border-t border-gray-700 pt-8 text-center text-gray-400">
+          <p>&copy; 2026 BeautyShop. Tất cả các quyền được bảo lưu.</p>
+          <p className="mt-2 text-sm">Giấy phép ĐKKD số: 0123456789 - Ngày cấp: 01/01/2020</p>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+// Main App Component
+const CosmeticsShop = () => {
+  const [cartCount, setCartCount] = useState(0);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+
+  const handleAddToCart = (product: any) => {
+    setCartCount(cartCount + 1);
+    setSelectedProduct(product);
+    setModalVisible(true);
+    setTimeout(() => setModalVisible(false), 2000);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Header cartCount={cartCount} />
+      <HeroBanner />
+      <Categories />
+      <VoucherSection />
+      <FlashSale />
+      <ProductsSection onAddToCart={handleAddToCart} />
+      <Footer />
+      
+      <Modal
+        open={modalVisible}
+        footer={null}
+        closable={false}
+        centered
+        className="text-center"
+      >
+        <div className="py-4">
+          <div className="text-6xl mb-4">✅</div>
+          <h3 className="text-xl font-semibold mb-2">Đã thêm vào giỏ hàng!</h3>
+          <p className="text-gray-600">{selectedProduct?.name}</p>
+        </div>
+      </Modal>
+    </div>
+  );
+};
+
+export default CosmeticsShop;

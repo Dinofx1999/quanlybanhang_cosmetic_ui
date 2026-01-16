@@ -12,6 +12,8 @@ import {
   Layers,
   Boxes,
   ArrowRightLeft,
+  ChevronRight,    // ← MỚI
+  ChevronDown,     // ← MỚI
 } from "lucide-react";
 import api from "../../../services/api";
 import { message, Modal, AutoComplete } from "antd";
@@ -62,6 +64,11 @@ type CategoryItem = {
   name: string;
   order?: number;
   isActive?: boolean;
+  // ✅ MỚI - cho nested categories
+  parentId?: string | null;
+  parentName?: string;
+  level?: number;
+  path?: string[];
 };
 
 type TierAgencyItem = {
@@ -180,11 +187,31 @@ function extractCreatedVariantId(created: any): string {
 // ===============================
 // API helpers (categories/products/tiers/branches)
 // ===============================
+
+function buildCategoryTree(categories: CategoryItem[], parentId: string | null = null): any[] {
+  return categories
+    .filter((cat) => {
+      const catParent = cat.parentId ? String(cat.parentId) : null;
+      const compareParent = parentId ? String(parentId) : null;
+      return catParent === compareParent;
+    })
+    .sort((a, b) => {
+      const orderA = Number(a.order ?? 999);
+      const orderB = Number(b.order ?? 999);
+      return orderA - orderB;
+    })
+    .map((cat) => ({
+      ...cat,
+      children: buildCategoryTree(categories, cat._id),
+    }));
+}
+
 const createCategory = async (data: any) => {
   const res = await api.post("/categories", {
     code: String(data.code || "").trim().toUpperCase(),
     name: String(data.name || "").trim(),
     order: Number(data.order) || 1,
+    parentId: data.parentId || null,  // ← MỚI
   });
   return res.data;
 };
@@ -195,6 +222,7 @@ const updateCategory = async (id: string, data: any) => {
     name: String(data.name || "").trim(),
     order: Number(data.order) || 1,
     isActive: data.isActive === undefined ? true : Boolean(data.isActive),
+    parentId: data.parentId || null,  // ← MỚI
   });
   return res.data;
 };
@@ -612,6 +640,191 @@ const BulkTierPriceModal = React.memo(function BulkTierPriceModal(props: {
 // ===============================
 // Component
 // ===============================
+
+// ===============================
+// THÊM COMPONENT NÀY VÀO ĐẦU FILE (sau phần imports, trước ProductInputSection)
+// ===============================
+
+/**
+ * Helper: Build tree từ flat categories
+ */
+// function buildCategoryTree(categories: CategoryItem[], parentId: string | null = null): any[] {
+//   return categories
+//     .filter((cat) => {
+//       const catParent = cat.parentId ? String(cat.parentId) : null;
+//       const compareParent = parentId ? String(parentId) : null;
+//       return catParent === compareParent;
+//     })
+//     .sort((a, b) => {
+//       const orderA = Number(a.order ?? 999);
+//       const orderB = Number(b.order ?? 999);
+//       return orderA - orderB;
+//     })
+//     .map((cat) => ({
+//       ...cat,
+//       children: buildCategoryTree(categories, cat._id),
+//     }));
+// }
+
+/**
+ * Component: CategoryTreeView
+ * Hiển thị danh mục dạng cây phân cấp với expand/collapse
+ */
+const CategoryTreeView = React.memo(function CategoryTreeView(props: {
+  categories: CategoryItem[];
+  onEdit: (cat: CategoryItem) => void;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const tree = useMemo(() => buildCategoryTree(props.categories, null), [props.categories]);
+
+  const toggleExpand = (id: string) => {
+    const next = new Set(expanded);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setExpanded(next);
+  };
+
+  const renderNode = (node: any, depth: number = 0) => {
+    const hasChildren = node.children && node.children.length > 0;
+    const isExpanded = expanded.has(node._id);
+    
+    // Màu badge theo level
+    const levelColors = [
+      "bg-pink-600 text-white",      // Level 0
+      "bg-purple-600 text-white",    // Level 1
+      "bg-indigo-600 text-white",    // Level 2
+      "bg-blue-600 text-white",      // Level 3
+      "bg-gray-600 text-white",      // Level 4+
+    ];
+    const badgeColor = levelColors[Math.min(depth, levelColors.length - 1)];
+
+    return (
+      <div key={node._id}>
+        {/* NODE ROW */}
+        <div 
+          className="group flex items-center gap-3 py-2.5 px-3 hover:bg-pink-50 rounded-xl transition-colors"
+          style={{ marginLeft: `${depth * 24}px` }}
+        >
+          {/* EXPAND BUTTON */}
+          {hasChildren && (
+            <button
+              onClick={() => toggleExpand(node._id)}
+              className="p-1 hover:bg-pink-100 rounded-lg transition-colors"
+              title={isExpanded ? "Thu gọn" : "Mở rộng"}
+            >
+              {isExpanded ? (
+                <ChevronDown className="w-4 h-4 text-gray-600" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              )}
+            </button>
+          )}
+
+          {/* PLACEHOLDER nếu không có children */}
+          {!hasChildren && <div className="w-6" />}
+
+          {/* CODE BADGE */}
+          <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold ${badgeColor}`}>
+            {node.code}
+          </span>
+
+          {/* NAME */}
+          <span className="font-semibold text-gray-900 flex-1">
+            {node.name}
+          </span>
+
+          {/* LEVEL BADGE */}
+          <span className="text-xs text-gray-500">
+            Cấp {node.level ?? 0}
+          </span>
+
+          {/* ORDER */}
+          <span className="text-xs text-gray-500">
+            #{node.order ?? "-"}
+          </span>
+
+          {/* CHILDREN COUNT */}
+          {hasChildren && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold">
+              <Layers className="w-3 h-3" />
+              {node.children.length}
+            </span>
+          )}
+
+          {/* EDIT BUTTON */}
+          <button
+            onClick={() => props.onEdit(node)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-white text-sm font-semibold opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            Sửa
+          </button>
+        </div>
+
+        {/* CHILDREN */}
+        {hasChildren && isExpanded && (
+          <div className="animate-in slide-in-from-top-2 duration-200">
+            {node.children.map((child: any) => renderNode(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (tree.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-500">
+        <Tag className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+        <p className="font-semibold text-gray-700">Chưa có danh mục nào</p>
+        <p className="text-sm mt-1">Thêm danh mục đầu tiên để bắt đầu</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {/* EXPAND/COLLAPSE ALL */}
+      <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-200">
+        <div className="text-sm text-gray-600">
+          Bấm vào biểu tượng <ChevronDown className="w-3 h-3 inline" /> để mở rộng/thu gọn
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              const allIds = new Set<string>();
+              const collect = (nodes: any[]) => {
+                nodes.forEach(n => {
+                  if (n.children && n.children.length > 0) {
+                    allIds.add(n._id);
+                    collect(n.children);
+                  }
+                });
+              };
+              collect(tree);
+              setExpanded(allIds);
+            }}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 font-semibold"
+          >
+            Mở tất cả
+          </button>
+          <button
+            onClick={() => setExpanded(new Set())}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 font-semibold"
+          >
+            Thu tất cả
+          </button>
+        </div>
+      </div>
+
+      {/* TREE */}
+      <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/30">
+        {tree.map((node) => renderNode(node, 0))}
+      </div>
+    </div>
+  );
+});
+
 const ProductInputSection: React.FC = () => {
   const [messageApi, contextHolder] = message.useMessage();
   const toast = {
@@ -638,7 +851,12 @@ const ProductInputSection: React.FC = () => {
   });
 
   // ✅ Category form
-  const [categoryForm, setCategoryForm] = useState({ name: "", code: "", order: "" });
+ const [categoryForm, setCategoryForm] = useState({ 
+  name: "", 
+  code: "", 
+  order: "",
+  parentId: ""  // ← MỚI
+});
 
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [tiers, setTiers] = useState<TierAgencyItem[]>([]);
@@ -676,13 +894,16 @@ const ProductInputSection: React.FC = () => {
     priceTierMap: {} as Record<string, string>,
   });
 
-  const [editCategory, setEditCategory] = useState<any>({
-    _id: "",
-    code: "",
-    name: "",
-    order: 1,
-    isActive: true,
-  });
+ const [editCategory, setEditCategory] = useState<any>({
+  _id: "",
+  code: "",
+  name: "",
+  order: 1,
+  isActive: true,
+  parentId: "",      // ← MỚI
+  parentName: "",    // ← MỚI
+  level: 0,          // ← MỚI
+});
 
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -1201,9 +1422,18 @@ const ProductInputSection: React.FC = () => {
 
     setCreating(true);
     try {
-      await createCategory(categoryForm);
-      await getCategories();
-      setCategoryForm({ name: "", code: "", order: "" });
+      await createCategory({
+      ...categoryForm,
+      parentId: categoryForm.parentId || null,
+    });
+    await getCategories();
+    setCategoryForm({ 
+      name: "", 
+      code: "", 
+      order: "",
+      parentId: ""
+    });
+      
       toast.success("Thêm mới danh mục thành công");
     } catch (err: any) {
       console.error("Create category error:", err?.response?.data || err?.message);
@@ -1241,15 +1471,18 @@ const ProductInputSection: React.FC = () => {
   };
 
   const openEditCategory = (c: CategoryItem) => {
-    setEditCategory({
-      _id: c._id,
-      code: c.code || "",
-      name: c.name || "",
-      order: Number(c.order ?? 1),
-      isActive: c.isActive !== false,
-    });
-    setEditCategoryOpen(true);
-  };
+  setEditCategory({
+    _id: c._id,
+    code: c.code || "",
+    name: c.name || "",
+    order: Number(c.order ?? 1),
+    isActive: c.isActive !== false,
+    parentId: c.parentId ? String(c.parentId) : "",
+    parentName: c.parentName || "",
+    level: c.level ?? 0,
+  });
+  setEditCategoryOpen(true);
+};
 
   // ===============================
   // SAVE EDIT
@@ -1287,7 +1520,10 @@ const ProductInputSection: React.FC = () => {
 
     setSavingEdit(true);
     try {
-      await updateCategory(editCategory._id, editCategory);
+      await updateCategory(editCategory._id, {
+      ...editCategory,
+      parentId: editCategory.parentId || null,
+    });
       setEditCategoryOpen(false);
       await getCategories();
       await getProducts().catch(() => {});
@@ -2240,137 +2476,229 @@ const ProductInputSection: React.FC = () => {
         </div>
       )}
 
-      {/* ===============================
-          CATEGORY TAB
-      =============================== */}
-      {activeTab === "category" && (
-        <div className="space-y-4">
-          <Card title="Thêm danh mục" desc="Tạo mới danh mục để nhóm sản phẩm">
-            <form onSubmit={handleCategorySubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Field label="Tên danh mục" required>
-                  <input
-                    type="text"
-                    value={categoryForm.name}
-                    onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
-                    placeholder="VD: Kem dưỡng da"
-                    required
-                  />
-                </Field>
+{activeTab === "category" && (
+  <div className="space-y-4">
+    {/* CREATE FORM */}
+    <Card title="Thêm danh mục" desc="Tạo mới danh mục hoặc danh mục con">
+      <form onSubmit={handleCategorySubmit} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Tên danh mục" required>
+            <input
+              type="text"
+              value={categoryForm.name}
+              onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
+              placeholder="VD: Kem dưỡng da"
+              required
+            />
+          </Field>
 
-                <Field label="CODE" required>
-                  <input
-                    type="text"
-                    value={categoryForm.code}
-                    onChange={(e) => setCategoryForm({ ...categoryForm, code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
-                    placeholder="VD: SON"
-                    required
-                  />
-                </Field>
+          <Field label="CODE" required>
+            <input
+              type="text"
+              value={categoryForm.code}
+              onChange={(e) => setCategoryForm({ ...categoryForm, code: e.target.value.toUpperCase() })}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
+              placeholder="VD: KEM"
+              required
+            />
+          </Field>
+        </div>
 
-                <Field label="Order">
-                  <input
-                    type="number"
-                    value={categoryForm.order}
-                    onChange={(e) => setCategoryForm({ ...categoryForm, order: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
-                    placeholder="1"
-                    min={1}
-                  />
-                </Field>
-              </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* ✅ MỚI - PARENT SELECTOR */}
+          <Field label="Danh mục cha" hint="Để trống = Root category (cấp 1)">
+            <AutoComplete
+              className="w-full"
+              options={categoryOptions}
+              filterOption={acFilter}
+              value={categoryForm.parentId || undefined}
+              onChange={(val) => setCategoryForm({ ...categoryForm, parentId: String(val || "") })}
+              onSelect={(val) => setCategoryForm({ ...categoryForm, parentId: String(val || "") })}
+              allowClear
+              placeholder="Chọn danh mục cha (tuỳ chọn)..."
+            />
+          </Field>
 
-              <button
-                type="submit"
-                disabled={creating}
-                className={`w-full py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 ${
-                  creating ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-pink-500 hover:bg-pink-600 text-white"
-                }`}
-              >
-                <Plus className="w-5 h-5" />
-                {creating ? "Đang tạo..." : "Thêm Danh Mục"}
-              </button>
-            </form>
-          </Card>
+          <Field label="Thứ tự hiển thị">
+            <input
+              type="number"
+              value={categoryForm.order}
+              onChange={(e) => setCategoryForm({ ...categoryForm, order: e.target.value })}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
+              placeholder="1"
+              min={1}
+            />
+          </Field>
+        </div>
 
-          <Card title={`Danh Sách (${categories.length})`} desc="Bấm sửa để cập nhật">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {categories?.map((cat) => (
-                <div key={cat._id} className="bg-gray-50 border border-gray-200 rounded-2xl p-4 hover:border-pink-300 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="text-xl font-extrabold text-pink-600">{cat.code}</div>
-                    <div className="flex-1">
-                      <h4 className="font-bold text-gray-900">{cat.name}</h4>
-                      <p className="text-sm text-gray-600">Order: {cat.order ?? "-"}</p>
-                    </div>
+        <button
+          type="submit"
+          disabled={creating}
+          className={`w-full py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 ${
+            creating ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-pink-500 hover:bg-pink-600 text-white"
+          }`}
+        >
+          <Plus className="w-5 h-5" />
+          {creating ? "Đang tạo..." : "Thêm Danh Mục"}
+        </button>
+      </form>
+    </Card>
 
-                    <button
-                      type="button"
-                      onClick={() => openEditCategory(cat)}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-white text-sm font-semibold"
-                    >
-                      <Pencil className="w-4 h-4" />
-                      Sửa
-                    </button>
+    {/* ✅ MỚI - CATEGORY TREE VIEW */}
+    <Card 
+      title={`Cây Danh Mục (${categories.length})`} 
+      desc="Hiển thị theo cấp bậc - bấm để mở rộng/thu gọn"
+      right={
+        <button
+          type="button"
+          onClick={getCategories}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Tải lại
+        </button>
+      }
+    >
+      <CategoryTreeView 
+        categories={categories}
+        onEdit={openEditCategory}
+      />
+    </Card>
+
+    {/* FLAT LIST VIEW - GIỮ LẠI */}
+    <Card title="Danh sách phẳng" desc="Tất cả danh mục (không phân cấp)">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {categories?.map((cat) => {
+          const levelBadge = cat.level !== undefined ? (
+            <span className="inline-block px-2 py-0.5 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold">
+              Cấp {cat.level}
+            </span>
+          ) : null;
+
+          const parentInfo = cat.parentName ? (
+            <span className="text-xs text-gray-500">
+              Cha: {cat.parentName}
+            </span>
+          ) : null;
+
+          return (
+            <div 
+              key={cat._id} 
+              className="bg-gray-50 border border-gray-200 rounded-2xl p-4 hover:border-pink-300 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <div className="text-xl font-extrabold text-pink-600">{cat.code}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className="font-bold text-gray-900 truncate">{cat.name}</h4>
+                    {levelBadge}
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-sm text-gray-600">Order: {cat.order ?? "-"}</p>
+                    {parentInfo}
                   </div>
                 </div>
-              ))}
 
-              {categories.length === 0 && <div className="text-sm text-gray-500">Chưa có danh mục nào.</div>}
-            </div>
-
-            <Modal
-              open={editCategoryOpen}
-              onCancel={() => setEditCategoryOpen(false)}
-              onOk={saveEditCategory}
-              okText={savingEdit ? "Đang lưu..." : "Lưu"}
-              cancelText="Đóng"
-              confirmLoading={savingEdit}
-              title="Sửa danh mục"
-              destroyOnClose
-            >
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Field label="CODE" required>
-                    <input
-                      value={editCategory.code}
-                      onChange={(e) => setEditCategory({ ...editCategory, code: e.target.value.toUpperCase() })}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                    />
-                  </Field>
-                  <Field label="Tên" required>
-                    <input
-                      value={editCategory.name}
-                      onChange={(e) => setEditCategory({ ...editCategory, name: e.target.value })}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                    />
-                  </Field>
-                </div>
-
-                <Field label="Order">
-                  <input
-                    type="number"
-                    value={editCategory.order}
-                    onChange={(e) => setEditCategory({ ...editCategory, order: Number(e.target.value || 1) })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  />
-                </Field>
-
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={!!editCategory.isActive}
-                    onChange={(e) => setEditCategory({ ...editCategory, isActive: e.target.checked })}
-                  />
-                  <span className="text-sm text-gray-700">Đang dùng (isActive)</span>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => openEditCategory(cat)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-white text-sm font-semibold shrink-0"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Sửa
+                </button>
               </div>
-            </Modal>
-          </Card>
+            </div>
+          );
+        })}
+
+        {categories.length === 0 && (
+          <div className="col-span-full text-sm text-gray-500 text-center py-6">
+            Chưa có danh mục nào.
+          </div>
+        )}
+      </div>
+    </Card>
+
+    {/* ✅ CẬP NHẬT EDIT MODAL */}
+    <Modal
+      open={editCategoryOpen}
+      onCancel={() => setEditCategoryOpen(false)}
+      onOk={saveEditCategory}
+      okText={savingEdit ? "Đang lưu..." : "Lưu"}
+      cancelText="Đóng"
+      confirmLoading={savingEdit}
+      title="Sửa danh mục"
+      width={600}
+      destroyOnClose
+    >
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="CODE" required>
+            <input
+              value={editCategory.code}
+              onChange={(e) => setEditCategory({ ...editCategory, code: e.target.value.toUpperCase() })}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+            />
+          </Field>
+          <Field label="Tên" required>
+            <input
+              value={editCategory.name}
+              onChange={(e) => setEditCategory({ ...editCategory, name: e.target.value })}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+            />
+          </Field>
         </div>
-      )}
+
+        {/* ✅ MỚI - PARENT SELECTOR */}
+        <Field label="Danh mục cha" hint="Để trống = Root category">
+          <AutoComplete
+            className="w-full"
+            options={categoryOptions.filter(opt => opt.value !== editCategory._id)}
+            filterOption={acFilter}
+            value={editCategory.parentId || undefined}
+            onChange={(val) => setEditCategory({ ...editCategory, parentId: String(val || "") })}
+            onSelect={(val) => setEditCategory({ ...editCategory, parentId: String(val || "") })}
+            allowClear
+            placeholder="Chọn danh mục cha..."
+          />
+        </Field>
+
+        <Field label="Order">
+          <input
+            type="number"
+            value={editCategory.order}
+            onChange={(e) => setEditCategory({ ...editCategory, order: Number(e.target.value || 1) })}
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+          />
+        </Field>
+
+        <label className="inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={!!editCategory.isActive}
+            onChange={(e) => setEditCategory({ ...editCategory, isActive: e.target.checked })}
+          />
+          <span className="text-sm text-gray-700">Đang dùng (isActive)</span>
+        </label>
+
+        {/* ✅ MỚI - INFO PANEL */}
+        {editCategory.level !== undefined && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+            <div className="text-sm text-blue-900">
+              <div className="font-semibold mb-1">Thông tin phân cấp:</div>
+              <div>• Cấp hiện tại: <strong>{editCategory.level}</strong></div>
+              {editCategory.parentName && (
+                <div>• Danh mục cha: <strong>{editCategory.parentName}</strong></div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  </div>
+)}
 
       {/* ===============================
           VARIANT TAB
