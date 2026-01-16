@@ -16,7 +16,7 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
         <div className="flex items-center gap-2 shrink-0">
           <div className="h-10 w-10 rounded-2xl bg-pink-500 flex items-center justify-center shadow-sm">
             {/* <Flame size={20} className="text-white" /> */}
-            <img alt="logo" className="w-full h-full object-cover" src="http://localhost:9009/uploads/branches/1768104874836-1068c7d025f7cf40e9748569.jpg" />
+            <img alt="logo" className="w-full h-full object-cover" src="http://116.105.227.149:9009/uploads/branches/1768574184904-1628e0c38b65dce695ad7e55.jpg" />
           </div>
           <div className="leading-tight hidden sm:block">
             <div className="font-extrabold text-gray-900">
