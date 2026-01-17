@@ -7,6 +7,7 @@ import FlashSale from "../ShopOnline/components/shop/FlashSale";
 import FilterSortBar, { Filters, SortKey } from "../ShopOnline/components/shop/FilterSortBar";
 import ProductGrid from "../ShopOnline/components/shop/ProductGrid";
 import ShopFooter from "../ShopOnline/components/shop/ShopFooter";
+import AdsBanner from "../ShopOnline/components/shop/AdsBanner";
 
 import { categories, products, flashSaleEndsAt } from "../ShopOnline/data/shopMock";
 
@@ -113,7 +114,12 @@ export default function ShopHome() {
       />
 
       {/* FULL SCREEN WRAPPER */}
-      <div className="w-full px-5 md:px-8 lg:px-10 py-5 space-y-4">
+        <div className="w-full px-5 md:px-8 lg:px-10 py-5 space-y-4">
+        <AdsBanner />
+        <div ref={flashRef}>
+          <FlashSale endsAt={flashSaleEndsAt} items={products.filter((p) => p.flashSale)} />
+        </div>
+         <VoucherBar onApply={() => {}} />
         <div className="bg-white border border-pink-100 rounded-[22px] p-3 md:p-4 shadow-sm">
           <CategoryBar
             items={categories}
@@ -125,11 +131,9 @@ export default function ShopHome() {
           />
         </div>
 
-        <VoucherBar onApply={() => {}} />
+       
 
-        <div ref={flashRef}>
-          <FlashSale endsAt={flashSaleEndsAt} items={products.filter((p) => p.flashSale)} />
-        </div>
+        
 
         <FilterSortBar
           sort={sort}

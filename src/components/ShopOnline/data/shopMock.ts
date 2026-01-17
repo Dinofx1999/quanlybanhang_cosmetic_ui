@@ -1,5 +1,9 @@
 // src/data/shopMock.ts
-export type Category = { id: string; name: string };
+export type Category = {
+  id: string;
+  name: string;
+  children?: Category[]; // ✅ recursive
+};
 
 export type Product = {
   id: string;
@@ -19,14 +23,6 @@ export type Product = {
   tags?: string[]; // ["Mall","Hot","New","Freeship"]
 };
 
-export const categories: Category[] = [
-  { id: "skincare", name: "Skincare" },
-  { id: "makeup", name: "Makeup" },
-  { id: "bodycare", name: "Bodycare" },
-  { id: "hair", name: "Hair" },
-  { id: "perfume", name: "Nước hoa" },
-  { id: "combo", name: "Combo" },
-];
 
 export const flashSaleEndsAt = Date.now() + 1000 * 60 * 60 * 3 + 1000 * 60 * 12;
 
@@ -75,7 +71,7 @@ export const products: Product[] = [
     rating: 4.7,
     reviews: 345,
     location: "Hà Nội",
-    tags: ["New", "Freeship"],
+    tags: ["New", "Freeship","Flash"],
   },
   {
     id: "p4",
@@ -89,7 +85,7 @@ export const products: Product[] = [
     rating: 4.9,
     reviews: 802,
     location: "Đà Nẵng",
-    tags: ["Hot"],
+    tags: ["Hot","Flash"],
   },
   {
     id: "p5",
@@ -109,16 +105,83 @@ export const products: Product[] = [
   },
   {
     id: "p6",
+    name: "Serum phục hồi - giảm kích ứng, phục hồi hàng rào",
+    brand: "Repair+",
+    categoryId: "skincare",
+    price: 329000,
+    originalPrice: 399000,
+    image: "https://images.unsplash.com/photo-1611930022093-7c1b7e76aa87?auto=format&fit=crop&w=900&q=75",
+    sold: 80,
+    soldCount: 420,
+    rating: 4.5,
+    reviews: 120,
+    location: "Hồ Chí Minh",
+    flashSale: true,
+    tags: ["Flash", "Mall"],
+  },
+  {
+    id: "p7",
     name: "Dưỡng thể hương hoa - mềm mịn cả ngày",
     brand: "Body Bloom",
     categoryId: "bodycare",
+    sold: 80,
     price: 179000,
     originalPrice: 219000,
     image: "https://images.unsplash.com/photo-1629198688000-71f23e745b6b?auto=format&fit=crop&w=900&q=75",
     soldCount: 260,
     rating: 4.3,
     reviews: 55,
+    flashSale: true,
     location: "Quảng Nam",
-    tags: ["Gift"],
+    tags: ["Gift","Flash"],
+  },
+];
+
+export const categories: Category[] = [
+  {
+    id: "skincare",
+    name: "Skincare",
+    children: [
+      {
+        id: "cleanser",
+        name: "Làm sạch",
+        children: [
+          { id: "foam", name: "Sữa rửa mặt" },
+          { id: "oil", name: "Tẩy trang dầu" },
+          { id: "micellar", name: "Nước tẩy trang" },
+        ],
+      },
+      {
+        id: "treatment",
+        name: "Đặc trị",
+        children: [
+          { id: "serum", name: "Serum" },
+          { id: "retinol", name: "Retinol" },
+          { id: "aha-bha", name: "AHA/BHA" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "makeup",
+    name: "Makeup",
+    children: [
+      {
+        id: "lips",
+        name: "Môi",
+        children: [
+          { id: "lipstick", name: "Son thỏi" },
+          { id: "tint", name: "Tint" },
+        ],
+      },
+      {
+        id: "face",
+        name: "Mặt",
+        children: [
+          { id: "cushion", name: "Cushion" },
+          { id: "powder", name: "Phấn phủ" },
+        ],
+      },
+    ],
   },
 ];
