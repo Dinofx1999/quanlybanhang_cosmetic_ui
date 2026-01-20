@@ -12,14 +12,13 @@ import {
   Layers,
   Boxes,
   ArrowRightLeft,
-  ChevronRight,    // ← MỚI
-  ChevronDown,     // ← MỚI
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import api from "../../../services/api";
 import { message, Modal, AutoComplete } from "antd";
 import { getCurrentUser } from "../../../services/authService";
 import { getActiveBranchRaw, setActiveBranchId } from "../../../services/branchContext";
-
 
 // ===============================
 // Types
@@ -29,7 +28,7 @@ type ProductImage = { url: string; isPrimary?: boolean; order?: number };
 type PriceTierRow = { tierId: string; price: number };
 
 type ProductOption = {
-  key: string; // normalized lowercase in backend
+  key: string;
   label?: string;
   values?: string[];
   order?: number;
@@ -48,13 +47,10 @@ type ProductItem = {
   thumbnail?: string;
   images?: ProductImage[];
   price_tier?: PriceTierRow[];
-
-  // ✅ variants config
   hasVariants?: boolean;
   options?: ProductOption[];
   basePrice?: number;
   baseTier?: PriceTierRow[];
-
   isActive?: boolean;
 };
 
@@ -64,7 +60,6 @@ type CategoryItem = {
   name: string;
   order?: number;
   isActive?: boolean;
-  // ✅ MỚI - cho nested categories
   parentId?: string | null;
   parentName?: string;
   level?: number;
@@ -95,13 +90,10 @@ type VariantItem = {
   barcode?: string;
   name?: string;
   attributes?: VariantAttr[];
-
   price?: number;
   cost?: number;
   price_tier?: PriceTierRow[];
-
   isActive?: boolean;
-
   stockQty?: number;
   stockReserved?: number;
 };
@@ -118,6 +110,7 @@ function formatVndInput(raw: string): string {
   if (!Number.isFinite(n)) return "";
   return `${n.toLocaleString("vi-VN")} đ`;
 }
+
 function parseVndInputToNumber(raw: string): number {
   const digits = String(raw || "").replace(/[^\d]/g, "");
   if (!digits) return 0;
@@ -125,7 +118,6 @@ function parseVndInputToNumber(raw: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// map {tierId: "120.000 đ"} -> [{tierId, price}]
 function normalizePriceTierFromMap(priceTierMap: Record<string, string>) {
   return Object.entries(priceTierMap || {})
     .map(([tierId, v]) => ({ tierId, price: parseVndInputToNumber(v) }))
@@ -185,7 +177,7 @@ function extractCreatedVariantId(created: any): string {
 }
 
 // ===============================
-// API helpers (categories/products/tiers/branches)
+// API helpers
 // ===============================
 
 function buildCategoryTree(categories: CategoryItem[], parentId: string | null = null): any[] {
@@ -211,7 +203,7 @@ const createCategory = async (data: any) => {
     code: String(data.code || "").trim().toUpperCase(),
     name: String(data.name || "").trim(),
     order: Number(data.order) || 1,
-    parentId: data.parentId || null,  // ← MỚI
+    parentId: data.parentId || null,
   });
   return res.data;
 };
@@ -222,7 +214,7 @@ const updateCategory = async (id: string, data: any) => {
     name: String(data.name || "").trim(),
     order: Number(data.order) || 1,
     isActive: data.isActive === undefined ? true : Boolean(data.isActive),
-    parentId: data.parentId || null,  // ← MỚI
+    parentId: data.parentId || null,
   });
   return res.data;
 };
@@ -238,8 +230,6 @@ const createProduct = async (data: any) => {
     brand: String(data.brand || "").trim(),
     barcode: String(data.barcode || "").trim(),
     price_tier: normalizePriceTierFromMap(data.priceTierMap || {}),
-
-    // ✅ variants config (optional)
     options: Array.isArray(data.options) ? data.options : undefined,
     basePrice: data.basePrice !== undefined ? Number(data.basePrice) : undefined,
     baseTier: data.baseTierMap ? normalizePriceTierFromMap(data.baseTierMap) : undefined,
@@ -259,8 +249,6 @@ const updateProduct = async (id: string, data: any) => {
     barcode: String(data.barcode || "").trim(),
     isActive: data.isActive === undefined ? true : Boolean(data.isActive),
     price_tier: data.priceTierMap ? normalizePriceTierFromMap(data.priceTierMap || {}) : undefined,
-
-    // ✅ variants config
     options: data.options !== undefined ? data.options : undefined,
     hasVariants: data.hasVariants !== undefined ? !!data.hasVariants : undefined,
     basePrice: data.basePrice !== undefined ? Math.round(Number(data.basePrice || 0)) : undefined,
@@ -269,7 +257,6 @@ const updateProduct = async (id: string, data: any) => {
   return res.data;
 };
 
-// Upload nhiều ảnh cho productId
 const uploadProductImages = async (productId: string, files: File[], primaryIndex = 0) => {
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
@@ -279,13 +266,11 @@ const uploadProductImages = async (productId: string, files: File[], primaryInde
   return res.data;
 };
 
-// Set primary theo URL
 const setPrimaryProductImage = async (productId: string, url: string) => {
   const res = await api.put(`/products/${productId}/images/primary`, { url });
   return res.data;
 };
 
-// Delete ảnh theo URL
 const deleteProductImageByUrl = async (productId: string, url: string) => {
   const res = await api.delete(`/products/${productId}/images`, { data: { url } });
   return res.data;
@@ -313,9 +298,6 @@ const getBranches = async () => {
   }
 };
 
-// ===============================
-// API helpers (variants + variant stocks)
-// ===============================
 const listVariants = async (params: { productId?: string; q?: string; isActive?: boolean; branchId?: string }) => {
   const res = await api.get("/product-variants", { params });
   return res.data as { ok: boolean; items: VariantItem[]; branchId: string };
@@ -327,7 +309,7 @@ const createVariant = async (data: any) => {
 };
 
 const updateVariant = async (id: string, data: any) => {
-  const res = await api.put(`/product-variants/${id}`, data);
+  const res = await api.put(`/products/variants/${id}`, data);
   return res.data;
 };
 
@@ -359,7 +341,7 @@ const transferVariantStock = async (payload: {
 };
 
 // ===============================
-// Small UI helpers
+// UI Components
 // ===============================
 const Card = React.memo(function Card(props: {
   title?: string;
@@ -526,9 +508,7 @@ const BulkTierPriceModal = React.memo(function BulkTierPriceModal(props: {
 }) {
   const { open, onClose, tiers, value, onApply } = props;
 
-  const [mode, setMode] = useState<
-    "SET_ALL" | "DELTA_PLUS" | "DELTA_MINUS" | "PERCENT_PLUS" | "PERCENT_MINUS"
-  >("SET_ALL");
+const [mode, setMode] = useState<"SET_ALL" | "DELTA_PLUS" | "DELTA_MINUS" | "PERCENT_PLUS" | "PERCENT_MINUS">("SET_ALL");
   const [amount, setAmount] = useState<string>("");
 
   useEffect(() => {
@@ -637,39 +617,6 @@ const BulkTierPriceModal = React.memo(function BulkTierPriceModal(props: {
   );
 });
 
-// ===============================
-// Component
-// ===============================
-
-// ===============================
-// THÊM COMPONENT NÀY VÀO ĐẦU FILE (sau phần imports, trước ProductInputSection)
-// ===============================
-
-/**
- * Helper: Build tree từ flat categories
- */
-// function buildCategoryTree(categories: CategoryItem[], parentId: string | null = null): any[] {
-//   return categories
-//     .filter((cat) => {
-//       const catParent = cat.parentId ? String(cat.parentId) : null;
-//       const compareParent = parentId ? String(parentId) : null;
-//       return catParent === compareParent;
-//     })
-//     .sort((a, b) => {
-//       const orderA = Number(a.order ?? 999);
-//       const orderB = Number(b.order ?? 999);
-//       return orderA - orderB;
-//     })
-//     .map((cat) => ({
-//       ...cat,
-//       children: buildCategoryTree(categories, cat._id),
-//     }));
-// }
-
-/**
- * Component: CategoryTreeView
- * Hiển thị danh mục dạng cây phân cấp với expand/collapse
- */
 const CategoryTreeView = React.memo(function CategoryTreeView(props: {
   categories: CategoryItem[];
   onEdit: (cat: CategoryItem) => void;
@@ -689,24 +636,21 @@ const CategoryTreeView = React.memo(function CategoryTreeView(props: {
     const hasChildren = node.children && node.children.length > 0;
     const isExpanded = expanded.has(node._id);
     
-    // Màu badge theo level
     const levelColors = [
-      "bg-pink-600 text-white",      // Level 0
-      "bg-purple-600 text-white",    // Level 1
-      "bg-indigo-600 text-white",    // Level 2
-      "bg-blue-600 text-white",      // Level 3
-      "bg-gray-600 text-white",      // Level 4+
+      "bg-pink-600 text-white",
+      "bg-purple-600 text-white",
+      "bg-indigo-600 text-white",
+      "bg-blue-600 text-white",
+      "bg-gray-600 text-white",
     ];
     const badgeColor = levelColors[Math.min(depth, levelColors.length - 1)];
 
     return (
       <div key={node._id}>
-        {/* NODE ROW */}
         <div 
           className="group flex items-center gap-3 py-2.5 px-3 hover:bg-pink-50 rounded-xl transition-colors"
           style={{ marginLeft: `${depth * 24}px` }}
         >
-          {/* EXPAND BUTTON */}
           {hasChildren && (
             <button
               onClick={() => toggleExpand(node._id)}
@@ -721,30 +665,24 @@ const CategoryTreeView = React.memo(function CategoryTreeView(props: {
             </button>
           )}
 
-          {/* PLACEHOLDER nếu không có children */}
           {!hasChildren && <div className="w-6" />}
 
-          {/* CODE BADGE */}
           <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold ${badgeColor}`}>
             {node.code}
           </span>
 
-          {/* NAME */}
           <span className="font-semibold text-gray-900 flex-1">
             {node.name}
           </span>
 
-          {/* LEVEL BADGE */}
           <span className="text-xs text-gray-500">
             Cấp {node.level ?? 0}
           </span>
 
-          {/* ORDER */}
           <span className="text-xs text-gray-500">
             #{node.order ?? "-"}
           </span>
 
-          {/* CHILDREN COUNT */}
           {hasChildren && (
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold">
               <Layers className="w-3 h-3" />
@@ -752,7 +690,6 @@ const CategoryTreeView = React.memo(function CategoryTreeView(props: {
             </span>
           )}
 
-          {/* EDIT BUTTON */}
           <button
             onClick={() => props.onEdit(node)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-white text-sm font-semibold opacity-0 group-hover:opacity-100 transition-opacity"
@@ -762,7 +699,6 @@ const CategoryTreeView = React.memo(function CategoryTreeView(props: {
           </button>
         </div>
 
-        {/* CHILDREN */}
         {hasChildren && isExpanded && (
           <div className="animate-in slide-in-from-top-2 duration-200">
             {node.children.map((child: any) => renderNode(child, depth + 1))}
@@ -784,7 +720,6 @@ const CategoryTreeView = React.memo(function CategoryTreeView(props: {
 
   return (
     <div className="space-y-1">
-      {/* EXPAND/COLLAPSE ALL */}
       <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-200">
         <div className="text-sm text-gray-600">
           Bấm vào biểu tượng <ChevronDown className="w-3 h-3 inline" /> để mở rộng/thu gọn
@@ -817,7 +752,6 @@ const CategoryTreeView = React.memo(function CategoryTreeView(props: {
         </div>
       </div>
 
-      {/* TREE */}
       <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/30">
         {tree.map((node) => renderNode(node, 0))}
       </div>
@@ -825,19 +759,23 @@ const CategoryTreeView = React.memo(function CategoryTreeView(props: {
   );
 });
 
+// ===============================
+// Main Component
+// ===============================
+
 const ProductInputSection: React.FC = () => {
   const [messageApi, contextHolder] = message.useMessage();
-  const toast = {
+  
+  // ✅ Tạo toast object từ messageApi
+  const toast = React.useMemo(() => ({
     success: (mess: string) => messageApi.open({ type: "success", content: mess }),
     error: (mess: string) => messageApi.open({ type: "error", content: mess }),
     warning: (mess: string) => messageApi.open({ type: "warning", content: mess }),
-  };
+  }), [messageApi]);
 
   const [user, setUser] = useState<any>(null);
-
   const [activeTab, setActiveTab] = useState<"product" | "category" | "variant">("product");
-
-  // ✅ Product form
+  
   const [productForm, setProductForm] = useState<any>({
     sku: "",
     name: "",
@@ -850,29 +788,22 @@ const ProductInputSection: React.FC = () => {
     priceTierMap: {} as Record<string, string>,
   });
 
-  // ✅ Category form
- const [categoryForm, setCategoryForm] = useState({ 
-  name: "", 
-  code: "", 
-  order: "",
-  parentId: ""  // ← MỚI
-});
+  const [categoryForm, setCategoryForm] = useState({ 
+    name: "", 
+    code: "", 
+    order: "",
+    parentId: ""
+  });
 
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [tiers, setTiers] = useState<TierAgencyItem[]>([]);
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
 
-  // ✅ Images (select BEFORE create)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [primaryIndex, setPrimaryIndex] = useState<number>(0);
-
-  // ✅ Creating state
   const [creating, setCreating] = useState(false);
 
-  // ===============================
-  // EDIT MODALS state
-  // ===============================
   const [editProductOpen, setEditProductOpen] = useState(false);
   const [editCategoryOpen, setEditCategoryOpen] = useState(false);
 
@@ -887,36 +818,28 @@ const ProductInputSection: React.FC = () => {
     brand: "",
     barcode: "",
     isActive: true,
-
     thumbnail: "",
     images: [] as ProductImage[],
-
     priceTierMap: {} as Record<string, string>,
   });
 
- const [editCategory, setEditCategory] = useState<any>({
-  _id: "",
-  code: "",
-  name: "",
-  order: 1,
-  isActive: true,
-  parentId: "",      // ← MỚI
-  parentName: "",    // ← MỚI
-  level: 0,          // ← MỚI
-});
+  const [editCategory, setEditCategory] = useState<any>({
+    _id: "",
+    code: "",
+    name: "",
+    order: 1,
+    isActive: true,
+    parentId: "",
+    parentName: "",
+    level: 0,
+  });
 
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // ===============================
-  // EDIT IMAGES state
-  // ===============================
   const [editImageFiles, setEditImageFiles] = useState<File[]>([]);
   const [editImagePrimaryIndex, setEditImagePrimaryIndex] = useState<number>(0);
   const [uploadingEditImages, setUploadingEditImages] = useState(false);
 
-  // ===============================
-  // Bulk Tier modal
-  // ===============================
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkTarget, setBulkTarget] = useState<"create" | "edit" | "variantCreate" | "variantEdit">("create");
   const openBulk = (target: typeof bulkTarget) => {
@@ -924,9 +847,6 @@ const ProductInputSection: React.FC = () => {
     setBulkOpen(true);
   };
 
-  // ===============================
-  // ✅ Barcode Scan (simple)
-  // ===============================
   const [scanOpen, setScanOpen] = useState(false);
   const [scanTarget, setScanTarget] = useState<"create" | "edit" | "variantCreate" | "variantEdit">("create");
   const [scanError, setScanError] = useState<string>("");
@@ -938,9 +858,6 @@ const ProductInputSection: React.FC = () => {
     setScanOpen(true);
   };
 
-  // ===============================
-  // ✅ Variant UI states
-  // ===============================
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [variantBranchRaw, setVariantBranchRaw] = useState<string>("all");
   const variantBranchIdForQuery = useMemo(() => {
@@ -958,40 +875,43 @@ const ProductInputSection: React.FC = () => {
   const [variants, setVariants] = useState<VariantItem[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
 
-  // Product options editor (for generate)
   const [productOptionsDraft, setProductOptionsDraft] = useState<ProductOption[]>([]);
   const [savingOptions, setSavingOptions] = useState(false);
 
   const [genOverwrite, setGenOverwrite] = useState(false);
   const [generating, setGenerating] = useState(false);
 
-  // Variant create/edit modals
   const [variantCreateOpen, setVariantCreateOpen] = useState(false);
   const [variantEditOpen, setVariantEditOpen] = useState(false);
   const [savingVariant, setSavingVariant] = useState(false);
 
   const emptyVariantForm = {
     _id: "",
-    productId: "",
     sku: "",
-    barcode: "",
     name: "",
-    isActive: true,
-    attributesRecord: {} as Record<string, string>,
+    barcode: "",
+    thumbnail: "",
+    images: [],
+    attributesRecord: {},
+    price: 0,
+    cost: 0,
     overridePrice: false,
     overrideCost: false,
-    price: "",
-    cost: "",
-    priceTierMap: {} as Record<string, string>,
+    priceTierMap: {},
+    isActive: true,
+    isDefault: false,
   };
 
   const [variantCreate, setVariantCreate] = useState<any>({ ...emptyVariantForm });
   const [variantEdit, setVariantEdit] = useState<any>({ ...emptyVariantForm });
 
-  // Stock modals
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [stockTargetVariant, setStockTargetVariant] = useState<VariantItem | null>(null);
+
+  const [variantEditImageFiles, setVariantEditImageFiles] = useState<File[]>([]);
+const [variantEditImagePrimaryIndex, setVariantEditImagePrimaryIndex] = useState<number>(0);
+const [uploadingVariantImages, setUploadingVariantImages] = useState(false);
 
   const [adjustForm, setAdjustForm] = useState<{ op: "IN" | "OUT" | "SET"; qty: string; note: string }>({
     op: "IN",
@@ -1003,30 +923,19 @@ const ProductInputSection: React.FC = () => {
     { fromBranchId: "", toBranchId: "", qty: "", note: "" }
   );
 
-  // ===============================
-  // Previews (create)
-  // ===============================
   const previews = useMemo(() => selectedFiles.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })), [selectedFiles]);
   useEffect(() => {
     return () => previews.forEach((p) => URL.revokeObjectURL(p.url));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFiles]);
 
-  // ===============================
-  // Previews (edit modal)
-  // ===============================
   const editImagePreviews = useMemo(
     () => editImageFiles.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })),
     [editImageFiles]
   );
   useEffect(() => {
     return () => editImagePreviews.forEach((p) => URL.revokeObjectURL(p.url));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editImageFiles]);
 
-  // ===============================
-  // AutoComplete options
-  // ===============================
   const categoryOptions = useMemo(() => {
     return (categories || [])
       .filter((c) => c?.isActive !== false)
@@ -1067,9 +976,6 @@ const ProductInputSection: React.FC = () => {
     ];
   }, [branches]);
 
-  // ===============================
-  // Fetch
-  // ===============================
   const getCategories = async () => {
     const res = await api.get("/categories");
     setCategories((res.data.items || []) as CategoryItem[]);
@@ -1080,6 +986,95 @@ const ProductInputSection: React.FC = () => {
     setTiers(items);
   };
 
+  const uploadVariantImages = async (variantId: string, files: File[], primaryIndex = 0) => {
+  const fd = new FormData();
+  files.forEach((f) => fd.append("files", f));
+  const res = await api.post(`/products/variants/${variantId}/images?primaryIndex=${primaryIndex}`, fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+const uploadImagesInVariantEditModal = async () => {
+  if (!variantEdit?._id) return;
+  if (variantEditImageFiles.length === 0) return void toast.warning("Chưa chọn ảnh");
+
+  setUploadingVariantImages(true);
+  try {
+    const rs = await uploadVariantImages(variantEdit._id, variantEditImageFiles, variantEditImagePrimaryIndex);
+
+    setVariantEdit((prev: any) => ({
+      ...prev,
+      thumbnail: rs?.thumbnail || prev.thumbnail,
+      images: rs?.images || prev.images,
+    }));
+
+    setVariantEditImageFiles([]);
+    setVariantEditImagePrimaryIndex(0);
+
+    await getVariants();
+    toast.success("Upload ảnh thành công");
+  } catch (err: any) {
+    console.error(err);
+    toast.error(err?.response?.data?.message || "Upload ảnh thất bại");
+  } finally {
+    setUploadingVariantImages(false);
+  }
+};
+
+const setPrimaryVariantImage = async (variantId: string, url: string) => {
+  const res = await api.put(`/products/variants/${variantId}/images/primary`, { url });
+  return res.data;
+};
+
+const deleteVariantImageByUrl = async (variantId: string, url: string) => {
+  const res = await api.delete(`/products/variants/${variantId}/images`, { data: { url } });
+  return res.data;
+};
+
+const setPrimaryInVariantEditModal = async (url: string) => {
+  if (!variantEdit?._id) return;
+
+  try {
+    const rs = await setPrimaryVariantImage(variantEdit._id, url);
+    setVariantEdit((prev: any) => ({
+      ...prev,
+      thumbnail: rs?.thumbnail || url,
+      images: rs?.images || prev.images,
+    }));
+    await getVariants();
+    toast.success("Đã đặt ảnh chính");
+  } catch (err: any) {
+    console.error(err);
+    toast.error(err?.response?.data?.message || "Không đặt được ảnh chính");
+  }
+};
+
+const deleteImageInVariantEditModal = async (url: string) => {
+  if (!variantEdit?._id) return;
+
+  Modal.confirm({
+    title: "Xoá ảnh?",
+    content: "Ảnh sẽ bị xoá khỏi variant (và xoá file trên server).",
+    okText: "Xoá",
+    okButtonProps: { danger: true },
+    cancelText: "Huỷ",
+    onOk: async () => {
+      try {
+        const rs = await deleteVariantImageByUrl(variantEdit._id, url);
+        setVariantEdit((prev: any) => ({
+          ...prev,
+          thumbnail: rs?.thumbnail || "",
+          images: rs?.images || [],
+        }));
+        await getVariants();
+        toast.success("Đã xoá ảnh");
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err?.response?.data?.message || "Xoá ảnh thất bại");
+      }
+    },
+  });
+};
   const getProducts = async () => {
     setLoadingProducts(true);
     try {
@@ -1118,9 +1113,6 @@ const ProductInputSection: React.FC = () => {
     }
   };
 
-  // ===============================
-  // Init
-  // ===============================
   useEffect(() => {
     const u = getCurrentUser?.();
     setUser(u || null);
@@ -1132,34 +1124,29 @@ const ProductInputSection: React.FC = () => {
   }, []);
 
   useEffect(() => {
-  if (!user) return;
+    if (!user) return;
 
-  // ✅ auto lấy branch theo role + localStorage
-  const raw = getActiveBranchRaw(user); // STAFF => user.branchId, ADMIN/MANAGER => localStorage hoặc "all"
-  const next = raw && raw.length ? raw : "all";
+    const raw = getActiveBranchRaw(user);
+    const next = raw && raw.length ? raw : "all";
 
-  setVariantBranchRaw(next);
+    setVariantBranchRaw(next);
 
-  // ✅ nếu ADMIN/MANAGER chưa có key thì set luôn để đồng bộ UI
-  const role = String(user?.role || "").toUpperCase();
-  if (role !== "STAFF") {
-    try {
-      setActiveBranchId(next); // "all" hoặc id thật
-    } catch {}
-  }
-}, [user]);
-
+    const role = String(user?.role || "").toUpperCase();
+    if (role !== "STAFF") {
+      try {
+        setActiveBranchId(next);
+      } catch {}
+    }
+  }, [user]);
 
   useEffect(() => {
     if (activeTab !== "product") return;
     getProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== "variant") return;
     if (products.length === 0) getProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   useEffect(() => {
@@ -1182,18 +1169,13 @@ const ProductInputSection: React.FC = () => {
     );
 
     getVariants();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProductId]);
 
   useEffect(() => {
     if (activeTab !== "variant") return;
     getVariants();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variantBranchIdForQuery, activeTab]);
 
-  // ===============================
-  // Barcode Scanner Modal
-  // ===============================
   const BarcodeScannerModal = () => {
     const videoRef = React.useRef<HTMLVideoElement | null>(null);
     const streamRef = React.useRef<MediaStream | null>(null);
@@ -1301,7 +1283,6 @@ const ProductInputSection: React.FC = () => {
       if (!scanOpen) return;
       startScan();
       return () => stopAll();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scanOpen]);
 
     return (
@@ -1355,9 +1336,6 @@ const ProductInputSection: React.FC = () => {
     );
   };
 
-  // ===============================
-  // Bulk apply (all places)
-  // ===============================
   const applyBulk = (next: Record<string, string>) => {
     if (bulkTarget === "create") setProductForm((prev: any) => ({ ...prev, priceTierMap: next }));
     else if (bulkTarget === "edit") setEditProduct((prev: any) => ({ ...prev, priceTierMap: next }));
@@ -1366,9 +1344,6 @@ const ProductInputSection: React.FC = () => {
     toast.success("Đã áp dụng đồng bộ giá sỉ");
   };
 
-  // ===============================
-  // Create handlers
-  // ===============================
   const handleProductSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
@@ -1423,16 +1398,16 @@ const ProductInputSection: React.FC = () => {
     setCreating(true);
     try {
       await createCategory({
-      ...categoryForm,
-      parentId: categoryForm.parentId || null,
-    });
-    await getCategories();
-    setCategoryForm({ 
-      name: "", 
-      code: "", 
-      order: "",
-      parentId: ""
-    });
+        ...categoryForm,
+        parentId: categoryForm.parentId || null,
+      });
+      await getCategories();
+      setCategoryForm({ 
+        name: "", 
+        code: "", 
+        order: "",
+        parentId: ""
+      });
       
       toast.success("Thêm mới danh mục thành công");
     } catch (err: any) {
@@ -1443,9 +1418,6 @@ const ProductInputSection: React.FC = () => {
     }
   };
 
-  // ===============================
-  // OPEN EDIT
-  // ===============================
   const openEditProduct = (p: ProductItem) => {
     setEditProduct({
       _id: p._id,
@@ -1458,10 +1430,8 @@ const ProductInputSection: React.FC = () => {
       brand: p.brand || "",
       barcode: p.barcode || "",
       isActive: p.isActive !== false,
-
       thumbnail: p.thumbnail || "",
       images: Array.isArray(p.images) ? p.images : [],
-
       priceTierMap: mapFromPriceTier((p as any).price_tier),
     });
 
@@ -1471,22 +1441,19 @@ const ProductInputSection: React.FC = () => {
   };
 
   const openEditCategory = (c: CategoryItem) => {
-  setEditCategory({
-    _id: c._id,
-    code: c.code || "",
-    name: c.name || "",
-    order: Number(c.order ?? 1),
-    isActive: c.isActive !== false,
-    parentId: c.parentId ? String(c.parentId) : "",
-    parentName: c.parentName || "",
-    level: c.level ?? 0,
-  });
-  setEditCategoryOpen(true);
-};
+    setEditCategory({
+      _id: c._id,
+      code: c.code || "",
+      name: c.name || "",
+      order: Number(c.order ?? 1),
+      isActive: c.isActive !== false,
+      parentId: c.parentId ? String(c.parentId) : "",
+      parentName: c.parentName || "",
+      level: c.level ?? 0,
+    });
+    setEditCategoryOpen(true);
+  };
 
-  // ===============================
-  // SAVE EDIT
-  // ===============================
   const saveEditProduct = async () => {
     if (!editProduct._id) return;
     if (!String(editProduct.sku || "").trim()) return void toast.warning("Thiếu SKU");
@@ -1521,9 +1488,9 @@ const ProductInputSection: React.FC = () => {
     setSavingEdit(true);
     try {
       await updateCategory(editCategory._id, {
-      ...editCategory,
-      parentId: editCategory.parentId || null,
-    });
+        ...editCategory,
+        parentId: editCategory.parentId || null,
+      });
       setEditCategoryOpen(false);
       await getCategories();
       await getProducts().catch(() => {});
@@ -1536,9 +1503,6 @@ const ProductInputSection: React.FC = () => {
     }
   };
 
-  // ===============================
-  // EDIT IMAGES handlers
-  // ===============================
   const uploadImagesInEditModal = async () => {
     if (!editProduct?._id) return;
     if (editImageFiles.length === 0) return void toast.warning("Chưa chọn ảnh");
@@ -1611,25 +1575,18 @@ const ProductInputSection: React.FC = () => {
     });
   };
 
-  // ===============================
-  // Variant: branch selector save (ADMIN/MANAGER)
-  // ===============================
   const onChangeVariantBranch = (raw: string) => {
-  const v = String(raw || "all");
-  setVariantBranchRaw(v);
+    const v = String(raw || "all");
+    setVariantBranchRaw(v);
 
-  const role = String(user?.role || "").toUpperCase();
-  if (role !== "STAFF") {
-    try {
-      setActiveBranchId(v);
-    } catch {}
-  }
-};
+    const role = String(user?.role || "").toUpperCase();
+    if (role !== "STAFF") {
+      try {
+        setActiveBranchId(v);
+      } catch {}
+    }
+  };
 
-
-  // ===============================
-  // Variant: save product options (to enable generate)
-  // ===============================
   const saveProductOptions = async () => {
     if (!selectedProduct) return;
 
@@ -1684,9 +1641,6 @@ const ProductInputSection: React.FC = () => {
     }
   };
 
-  // ===============================
-  // Variant CRUD
-  // ===============================
   const openCreateVariant = () => {
     if (!selectedProductId) return void toast.warning("Chọn sản phẩm trước");
     const baseSku = selectedProduct?.sku || "";
@@ -1721,15 +1675,76 @@ const ProductInputSection: React.FC = () => {
       name: v.name || "",
       isActive: v.isActive !== false,
       attributesRecord: attrsRec,
-
       overridePrice: typeof v.price === "number",
       overrideCost: typeof v.cost === "number",
       price: typeof v.price === "number" ? formatVndInput(String(v.price)) : "",
       cost: typeof v.cost === "number" ? formatVndInput(String(v.cost)) : "",
-
       priceTierMap: mapFromPriceTier(v.price_tier as any),
     });
     setVariantEditOpen(true);
+  };
+
+  const submitEditVariant = async () => {
+    if (!variantEdit._id) return;
+    if (!String(variantEdit.sku || "").trim()) return void toast.warning("Thiếu SKU");
+
+    setSavingVariant(true);
+    try {
+      const payload: any = {
+        sku: String(variantEdit.sku || "").trim().toUpperCase(),
+        name: String(variantEdit.name || "").trim(),
+        barcode: String(variantEdit.barcode || "").trim(),
+        isActive: !!variantEdit.isActive,
+        isDefault: !!variantEdit.isDefault,
+      };
+
+      // Chuyển attributesRecord thành attributes array [{k, v}]
+      if (variantEdit.attributesRecord && Object.keys(variantEdit.attributesRecord).length > 0) {
+        payload.attributes = Object.entries(variantEdit.attributesRecord)
+          .filter(([k, v]) => k && v)
+          .map(([k, v]) => ({ k, v: String(v) }));
+      } else {
+        payload.attributes = [];
+      }
+
+      // Xử lý images và thumbnail
+      if (variantEdit.thumbnail || variantEdit.images) {
+        payload.thumbnail = variantEdit.thumbnail || "";
+        payload.images = variantEdit.images || [];
+      }
+
+      // Xử lý price override
+      if (variantEdit.overridePrice) {
+        payload.price = parseVndInputToNumber(variantEdit.price);
+      }
+
+      // Xử lý cost override
+      if (variantEdit.overrideCost) {
+        payload.cost = parseVndInputToNumber(variantEdit.cost);
+      }
+
+      // Chuyển priceTierMap thành price_tier array
+      if (variantEdit.priceTierMap && Object.keys(variantEdit.priceTierMap).length > 0) {
+        payload.price_tier = Object.entries(variantEdit.priceTierMap)
+          .filter(([tierId, price]) => price !== undefined && price !== null)
+          .map(([tierId, price]) => ({ 
+            tierId, 
+            price: parseVndInputToNumber(String(price))
+          }));
+      } else {
+        payload.price_tier = [];
+      }
+
+      await updateVariant(variantEdit._id, payload);
+      toast.success("Cập nhật variant thành công");
+      setVariantEditOpen(false);
+      await getVariants();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.response?.data?.message || "Cập nhật variant thất bại");
+    } finally {
+      setSavingVariant(false);
+    }
   };
 
   const submitCreateVariant = async () => {
@@ -1743,10 +1758,8 @@ const ProductInputSection: React.FC = () => {
         barcode: String(variantCreate.barcode || "").trim(),
         name: String(variantCreate.name || "").trim(),
         attributes: recordToAttrs(variantCreate.attributesRecord),
-
         price: variantCreate.overridePrice ? parseVndInputToNumber(variantCreate.price) : undefined,
         cost: variantCreate.overrideCost ? parseVndInputToNumber(variantCreate.cost) : undefined,
-
         price_tier: normalizePriceTierFromMap(variantCreate.priceTierMap || {}),
         isActive: variantCreate.isActive === undefined ? true : !!variantCreate.isActive,
       };
@@ -1766,39 +1779,6 @@ const ProductInputSection: React.FC = () => {
     }
   };
 
-  const submitEditVariant = async () => {
-    if (!variantEdit._id) return;
-    if (!String(variantEdit.sku || "").trim()) return void toast.warning("Thiếu SKU");
-    setSavingVariant(true);
-    try {
-      const payload: any = {
-        sku: String(variantEdit.sku || "").trim().toUpperCase(),
-        barcode: String(variantEdit.barcode || "").trim(),
-        name: String(variantEdit.name || "").trim(),
-        attributes: recordToAttrs(variantEdit.attributesRecord),
-
-        price: variantEdit.overridePrice ? parseVndInputToNumber(variantEdit.price) : null,
-        cost: variantEdit.overrideCost ? parseVndInputToNumber(variantEdit.cost) : null,
-
-        price_tier: normalizePriceTierFromMap(variantEdit.priceTierMap || {}),
-        isActive: variantEdit.isActive === undefined ? true : !!variantEdit.isActive,
-      };
-
-      await updateVariant(variantEdit._id, payload);
-      toast.success("Cập nhật variant thành công");
-      setVariantEditOpen(false);
-      await getVariants();
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.response?.data?.message || "Cập nhật variant thất bại");
-    } finally {
-      setSavingVariant(false);
-    }
-  };
-
-  // ===============================
-  // Stock actions
-  // ===============================
   const openAdjust = (v: VariantItem) => {
     if (!variantBranchRaw || variantBranchRaw === "all") return void toast.warning("Chọn 1 chi nhánh để chỉnh tồn kho");
     setStockTargetVariant(v);
@@ -1870,9 +1850,6 @@ const ProductInputSection: React.FC = () => {
     }
   };
 
-  // ===============================
-  // UI
-  // ===============================
   return (
     <div className="max-w-6xl mx-auto space-y-4">
       {contextHolder}
@@ -1894,13 +1871,11 @@ const ProductInputSection: React.FC = () => {
         onApply={applyBulk}
       />
 
-      {/* Header */}
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <h2 className="text-xl font-extrabold text-gray-900">Quản Lý Sản Phẩm</h2>
         <p className="text-sm text-gray-600 mt-1">Sản phẩm / Danh mục / Variant + Tồn kho Variant</p>
       </div>
 
-      {/* Tabs */}
       <div className="bg-white rounded-2xl border border-gray-200 p-2 shadow-sm">
         <div className="flex gap-2">
           <button
@@ -1935,9 +1910,6 @@ const ProductInputSection: React.FC = () => {
         </div>
       </div>
 
-      {/* ===============================
-          PRODUCT TAB
-      =============================== */}
       {activeTab === "product" && (
         <div className="space-y-4">
           <Card title="Thêm sản phẩm" desc="Nhập thông tin + giá sỉ theo tier (product)">
@@ -2049,7 +2021,6 @@ const ProductInputSection: React.FC = () => {
 
               <DividerLine />
 
-              {/* Images picker */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <ImageIcon className="w-5 h-5 text-gray-600" />
@@ -2230,7 +2201,6 @@ const ProductInputSection: React.FC = () => {
               </table>
             </div>
 
-            {/* ✅ Edit Product Modal */}
             <Modal
               open={editProductOpen}
               onCancel={() => setEditProductOpen(false)}
@@ -2317,1117 +2287,1241 @@ const ProductInputSection: React.FC = () => {
                       className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
                     />
                   </Field>
-
                   <Field label="Barcode">
-                    <div className="flex gap-2">
-                      <input
-                        value={editProduct.barcode}
-                        onChange={(e) => setEditProduct({ ...editProduct, barcode: e.target.value })}
-                        className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => openScan("edit")}
-                        className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
-                        disabled={savingEdit}
-                      >
-                        Quét mã
-                      </button>
-                    </div>
-                  </Field>
-                </div>
-
-                <label className="inline-flex items-center gap-2">
+                <div className="flex gap-2">
                   <input
-                    type="checkbox"
-                    checked={!!editProduct.isActive}
-                    onChange={(e) => setEditProduct({ ...editProduct, isActive: e.target.checked })}
+                    value={editProduct.barcode}
+                    onChange={(e) => setEditProduct({ ...editProduct, barcode: e.target.value })}
+                    className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
                   />
-                  <span className="text-sm text-gray-700">Đang bán (isActive)</span>
-                </label>
 
-                <DividerLine />
+                  <button
+                    type="button"
+                    onClick={() => openScan("edit")}
+                    className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
+                    disabled={savingEdit}
+                  >
+                    Quét mã
+                  </button>
+                </div>
+              </Field>
+            </div>
 
-                {/* EDIT IMAGES */}
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <ImageIcon className="w-5 h-5 text-gray-600" />
-                    <h4 className="font-semibold text-gray-800">Ảnh sản phẩm</h4>
-                    <span className="text-xs text-gray-500">(chọn ảnh chính / xoá / upload thêm)</span>
-                  </div>
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!editProduct.isActive}
+                onChange={(e) => setEditProduct({ ...editProduct, isActive: e.target.checked })}
+              />
+              <span className="text-sm text-gray-700">Đang bán (isActive)</span>
+            </label>
 
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {(editProduct.images || []).length === 0 && <div className="text-sm text-gray-500">Chưa có ảnh.</div>}
+            <DividerLine />
 
-                    {(editProduct.images || []).map((img: ProductImage) => {
-                      const isPrimary = !!img.isPrimary || img.url === editProduct.thumbnail;
-                      return (
-                        <div
-                          key={img.url}
-                          className={`relative border rounded-xl overflow-hidden ${
-                            isPrimary ? "border-pink-500 ring-2 ring-pink-200" : "border-gray-200"
-                          }`}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <ImageIcon className="w-5 h-5 text-gray-600" />
+                <h4 className="font-semibold text-gray-800">Ảnh sản phẩm</h4>
+                <span className="text-xs text-gray-500">(chọn ảnh chính / xoá / upload thêm)</span>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {(editProduct.images || []).length === 0 && <div className="text-sm text-gray-500">Chưa có ảnh.</div>}
+
+                {(editProduct.images || []).map((img: ProductImage) => {
+                  const isPrimary = !!img.isPrimary || img.url === editProduct.thumbnail;
+                  return (
+                    <div
+                      key={img.url}
+                      className={`relative border rounded-xl overflow-hidden ${
+                        isPrimary ? "border-pink-500 ring-2 ring-pink-200" : "border-gray-200"
+                      }`}
+                    >
+                      <img src={img.url} alt="product" className="w-full h-24 object-cover" />
+
+                      <div className="p-2 flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPrimaryInEditModal(img.url)}
+                          className="text-[11px] px-2 py-1 rounded-lg bg-white border border-gray-200 hover:border-pink-300"
                         >
-                          <img src={img.url} alt="product" className="w-full h-24 object-cover" />
-
-                          <div className="p-2 flex items-center justify-between gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setPrimaryInEditModal(img.url)}
-                              className="text-[11px] px-2 py-1 rounded-lg bg-white border border-gray-200 hover:border-pink-300"
-                            >
-                              {isPrimary ? "Ảnh chính" : "Chọn chính"}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => deleteImageInEditModal(img.url)}
-                              className="text-[11px] px-2 py-1 rounded-lg bg-white border border-gray-200 hover:border-red-300"
-                            >
-                              Xoá
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-sm font-medium text-gray-700 mb-2">Upload thêm ảnh</div>
-
-                    <label className="block w-full cursor-pointer">
-                      <div className="w-full px-3 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold text-gray-700">
-                        Bấm để chọn ảnh (tối đa 8)
-                      </div>
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/*"
-                        onChange={(e) => {
-                          const files = Array.from(e.target.files || []).slice(0, 8);
-                          setEditImageFiles(files);
-                          setEditImagePrimaryIndex(0);
-                          e.currentTarget.value = "";
-                        }}
-                        className="hidden"
-                        disabled={uploadingEditImages || savingEdit}
-                      />
-                    </label>
-
-                    {editImageFiles.length > 0 && (
-                      <div className="mt-3">
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                          {editImagePreviews.map((p, idx) => (
-                            <div
-                              key={p.url}
-                              className={`relative border rounded-xl overflow-hidden ${
-                                idx === editImagePrimaryIndex ? "border-pink-500 ring-2 ring-pink-200" : "border-gray-200"
-                              }`}
-                            >
-                              <img src={p.url} alt={p.name} className="w-full h-24 object-cover" />
-                              <div className="p-2 text-xs text-gray-600 truncate">{p.name}</div>
-
-                              <button
-                                type="button"
-                                onClick={() => setEditImagePrimaryIndex(idx)}
-                                className="absolute top-2 left-2 text-[11px] px-2 py-1 rounded-lg bg-white/95 border border-gray-200 hover:border-pink-300"
-                              >
-                                {idx === editImagePrimaryIndex ? "Ảnh chính" : "Chọn chính"}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = editImageFiles.filter((_, i) => i !== idx);
-                                  setEditImageFiles(next);
-                                  setEditImagePrimaryIndex((pi) => {
-                                    if (idx === pi) return 0;
-                                    if (idx < pi) return Math.max(0, pi - 1);
-                                    return pi;
-                                  });
-                                }}
-                                className="absolute top-2 right-2 p-1 rounded-lg bg-white/95 border border-gray-200 hover:border-red-300"
-                                title="Xoá ảnh"
-                              >
-                                <X className="w-4 h-4 text-gray-700" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
+                          {isPrimary ? "Ảnh chính" : "Chọn chính"}
+                        </button>
 
                         <button
                           type="button"
-                          onClick={uploadImagesInEditModal}
-                          disabled={uploadingEditImages}
-                          className={`mt-3 w-full py-2.5 rounded-xl font-bold transition-colors ${
-                            uploadingEditImages ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-pink-500 hover:bg-pink-600 text-white"
-                          }`}
+                          onClick={() => deleteImageInEditModal(img.url)}
+                          className="text-[11px] px-2 py-1 rounded-lg bg-white border border-gray-200 hover:border-red-300"
                         >
-                          {uploadingEditImages ? "Đang upload..." : "Upload ảnh"}
+                          Xoá
                         </button>
                       </div>
-                    )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4">
+                <div className="text-sm font-medium text-gray-700 mb-2">Upload thêm ảnh</div>
+
+                <label className="block w-full cursor-pointer">
+                  <div className="w-full px-3 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold text-gray-700">
+                    Bấm để chọn ảnh (tối đa 8)
                   </div>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []).slice(0, 8);
+                      setEditImageFiles(files);
+                      setEditImagePrimaryIndex(0);
+                      e.currentTarget.value = "";
+                    }}
+                    className="hidden"
+                    disabled={uploadingEditImages || savingEdit}
+                  />
+                </label>
+
+                {editImageFiles.length > 0 && (
+                  <div className="mt-3">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {editImagePreviews.map((p, idx) => (
+                        <div
+                          key={p.url}
+                          className={`relative border rounded-xl overflow-hidden ${
+                            idx === editImagePrimaryIndex ? "border-pink-500 ring-2 ring-pink-200" : "border-gray-200"
+                          }`}
+                        >
+                          <img src={p.url} alt={p.name} className="w-full h-24 object-cover" />
+                          <div className="p-2 text-xs text-gray-600 truncate">{p.name}</div>
+
+                          <button
+                            type="button"
+                            onClick={() => setEditImagePrimaryIndex(idx)}
+                            className="absolute top-2 left-2 text-[11px] px-2 py-1 rounded-lg bg-white/95 border border-gray-200 hover:border-pink-300"
+                          >
+                            {idx === editImagePrimaryIndex ? "Ảnh chính" : "Chọn chính"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = editImageFiles.filter((_, i) => i !== idx);
+                              setEditImageFiles(next);
+                              setEditImagePrimaryIndex((pi) => {
+                                if (idx === pi) return 0;
+                                if (idx < pi) return Math.max(0, pi - 1);
+                                return pi;
+                              });
+                            }}
+                            className="absolute top-2 right-2 p-1 rounded-lg bg-white/95 border border-gray-200 hover:border-red-300"
+                            title="Xoá ảnh"
+                          >
+                            <X className="w-4 h-4 text-gray-700" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={uploadImagesInEditModal}
+                      disabled={uploadingEditImages}
+                      className={`mt-3 w-full py-2.5 rounded-xl font-bold transition-colors ${
+                        uploadingEditImages ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-pink-500 hover:bg-pink-600 text-white"
+                      }`}
+                    >
+                      {uploadingEditImages ? "Đang upload..." : "Upload ảnh"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      </Card>
+    </div>
+  )}
+
+  {activeTab === "category" && (
+    <div className="space-y-4">
+      <Card title="Thêm danh mục" desc="Tạo mới danh mục hoặc danh mục con">
+        <form onSubmit={handleCategorySubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Tên danh mục" required>
+              <input
+                type="text"
+                value={categoryForm.name}
+                onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
+                placeholder="VD: Kem dưỡng da"
+                required
+              />
+            </Field>
+
+            <Field label="CODE" required>
+              <input
+                type="text"
+                value={categoryForm.code}
+                onChange={(e) => setCategoryForm({ ...categoryForm, code: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
+                placeholder="VD: KEM"
+                required
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Danh mục cha" hint="Để trống = Root category (cấp 1)">
+              <AutoComplete
+                className="w-full"
+                options={categoryOptions}
+                filterOption={acFilter}
+                value={categoryForm.parentId || undefined}
+                onChange={(val) => setCategoryForm({ ...categoryForm, parentId: String(val || "") })}
+                onSelect={(val) => setCategoryForm({ ...categoryForm, parentId: String(val || "") })}
+                allowClear
+                placeholder="Chọn danh mục cha (tuỳ chọn)..."
+              />
+            </Field>
+
+            <Field label="Thứ tự hiển thị">
+              <input
+                type="number"
+                value={categoryForm.order}
+                onChange={(e) => setCategoryForm({ ...categoryForm, order: e.target.value })}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
+                placeholder="1"
+                min={1}
+              />
+            </Field>
+          </div>
+
+          <button
+            type="submit"
+            disabled={creating}
+            className={`w-full py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 ${
+              creating ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-pink-500 hover:bg-pink-600 text-white"
+            }`}
+          >
+            <Plus className="w-5 h-5" />
+            {creating ? "Đang tạo..." : "Thêm Danh Mục"}
+          </button>
+        </form>
+      </Card>
+
+      <Card 
+        title={`Cây Danh Mục (${categories.length})`} 
+        desc="Hiển thị theo cấp bậc - bấm để mở rộng/thu gọn"
+        right={
+          <button
+            type="button"
+            onClick={getCategories}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Tải lại
+          </button>
+        }
+      >
+        <CategoryTreeView 
+          categories={categories}
+          onEdit={openEditCategory}
+        />
+      </Card>
+
+      <Card title="Danh sách phẳng" desc="Tất cả danh mục (không phân cấp)">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {categories?.map((cat) => {
+            const levelBadge = cat.level !== undefined ? (
+              <span className="inline-block px-2 py-0.5 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold">
+                Cấp {cat.level}
+              </span>
+            ) : null;
+
+            const parentInfo = cat.parentName ? (
+              <span className="text-xs text-gray-500">
+                Cha: {cat.parentName}
+              </span>
+            ) : null;
+
+            return (
+              <div 
+                key={cat._id} 
+                className="bg-gray-50 border border-gray-200 rounded-2xl p-4 hover:border-pink-300 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="text-xl font-extrabold text-pink-600">{cat.code}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-bold text-gray-900 truncate">{cat.name}</h4>
+                      {levelBadge}
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-sm text-gray-600">Order: {cat.order ?? "-"}</p>
+                      {parentInfo}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openEditCategory(cat)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-white text-sm font-semibold shrink-0"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Sửa
+                  </button>
                 </div>
               </div>
-            </Modal>
-          </Card>
+            );
+          })}
+
+          {categories.length === 0 && (
+            <div className="col-span-full text-sm text-gray-500 text-center py-6">
+              Chưa có danh mục nào.
+            </div>
+          )}
         </div>
-      )}
+      </Card>
 
-{activeTab === "category" && (
-  <div className="space-y-4">
-    {/* CREATE FORM */}
-    <Card title="Thêm danh mục" desc="Tạo mới danh mục hoặc danh mục con">
-      <form onSubmit={handleCategorySubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Tên danh mục" required>
-            <input
-              type="text"
-              value={categoryForm.name}
-              onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
-              placeholder="VD: Kem dưỡng da"
-              required
-            />
-          </Field>
+      <Modal
+        open={editCategoryOpen}
+        onCancel={() => setEditCategoryOpen(false)}
+        onOk={saveEditCategory}
+        okText={savingEdit ? "Đang lưu..." : "Lưu"}
+        cancelText="Đóng"
+        confirmLoading={savingEdit}
+        title="Sửa danh mục"
+        width={600}
+        destroyOnClose
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Field label="CODE" required>
+              <input
+                value={editCategory.code}
+                onChange={(e) => setEditCategory({ ...editCategory, code: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
+            </Field>
+            <Field label="Tên" required>
+              <input
+                value={editCategory.name}
+                onChange={(e) => setEditCategory({ ...editCategory, name: e.target.value })}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
+            </Field>
+          </div>
 
-          <Field label="CODE" required>
-            <input
-              type="text"
-              value={categoryForm.code}
-              onChange={(e) => setCategoryForm({ ...categoryForm, code: e.target.value.toUpperCase() })}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
-              placeholder="VD: KEM"
-              required
-            />
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* ✅ MỚI - PARENT SELECTOR */}
-          <Field label="Danh mục cha" hint="Để trống = Root category (cấp 1)">
+          <Field label="Danh mục cha" hint="Để trống = Root category">
             <AutoComplete
               className="w-full"
-              options={categoryOptions}
+              options={categoryOptions.filter(opt => opt.value !== editCategory._id)}
               filterOption={acFilter}
-              value={categoryForm.parentId || undefined}
-              onChange={(val) => setCategoryForm({ ...categoryForm, parentId: String(val || "") })}
-              onSelect={(val) => setCategoryForm({ ...categoryForm, parentId: String(val || "") })}
+              value={editCategory.parentId || undefined}
+              onChange={(val) => setEditCategory({ ...editCategory, parentId: String(val || "") })}
+              onSelect={(val) => setEditCategory({ ...editCategory, parentId: String(val || "") })}
               allowClear
-              placeholder="Chọn danh mục cha (tuỳ chọn)..."
+              placeholder="Chọn danh mục cha..."
             />
           </Field>
 
-          <Field label="Thứ tự hiển thị">
+          <Field label="Order">
             <input
               type="number"
-              value={categoryForm.order}
-              onChange={(e) => setCategoryForm({ ...categoryForm, order: e.target.value })}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent"
-              placeholder="1"
-              min={1}
+              value={editCategory.order}
+              onChange={(e) => setEditCategory({ ...editCategory, order: Number(e.target.value || 1) })}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+            />
+          </Field>
+
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!editCategory.isActive}
+              onChange={(e) => setEditCategory({ ...editCategory, isActive: e.target.checked })}
+            />
+            <span className="text-sm text-gray-700">Đang dùng (isActive)</span>
+          </label>
+
+          {editCategory.level !== undefined && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <div className="text-sm text-blue-900">
+                <div className="font-semibold mb-1">Thông tin phân cấp:</div>
+                <div>• Cấp hiện tại: <strong>{editCategory.level}</strong></div>
+                {editCategory.parentName && (
+                  <div>• Danh mục cha: <strong>{editCategory.parentName}</strong></div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+    </div>
+  )}
+
+  {activeTab === "variant" && (
+    <div className="space-y-4">
+      <Card
+        title="Chọn sản phẩm & chi nhánh"
+        desc="Variant được quản lý theo từng sản phẩm cha. Chi nhánh dùng để xem/chỉnh tồn kho."
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Chọn sản phẩm (Product master)" required hint="Gõ để tìm theo SKU / Tên">
+            <AutoComplete
+              className="w-full"
+              options={productOptions}
+              filterOption={acFilter}
+              value={selectedProductId || undefined}
+              onChange={(val) => setSelectedProductId(String(val || ""))}
+              onSelect={(val) => setSelectedProductId(String(val || ""))}
+              allowClear
+              placeholder="Chọn sản phẩm..."
+            />
+          </Field>
+
+          <Field label="Chi nhánh" hint='ADMIN/MANAGER chọn "all" hoặc 1 chi nhánh. STAFF bị khóa theo branch token.'>
+            <AutoComplete
+              className="w-full"
+              options={branchOptions}
+              filterOption={acFilter}
+              value={variantBranchRaw || "all"}
+              onChange={(val) => onChangeVariantBranch(String(val || "all"))}
+              onSelect={(val) => onChangeVariantBranch(String(val || "all"))}
+              allowClear={false}
+              placeholder="Chọn chi nhánh..."
             />
           </Field>
         </div>
 
-        <button
-          type="submit"
-          disabled={creating}
-          className={`w-full py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 ${
-            creating ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-pink-500 hover:bg-pink-600 text-white"
-          }`}
-        >
-          <Plus className="w-5 h-5" />
-          {creating ? "Đang tạo..." : "Thêm Danh Mục"}
-        </button>
-      </form>
-    </Card>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs text-gray-500">
+            {variantBranchRaw === "all" ? "Đang xem: All (không kèm stock trong list)" : `Đang xem: ${variantBranchRaw} (có stockQty)`}
+          </div>
 
-    {/* ✅ MỚI - CATEGORY TREE VIEW */}
-    <Card 
-      title={`Cây Danh Mục (${categories.length})`} 
-      desc="Hiển thị theo cấp bậc - bấm để mở rộng/thu gọn"
-      right={
-        <button
-          type="button"
-          onClick={getCategories}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Tải lại
-        </button>
-      }
-    >
-      <CategoryTreeView 
-        categories={categories}
-        onEdit={openEditCategory}
-      />
-    </Card>
-
-    {/* FLAT LIST VIEW - GIỮ LẠI */}
-    <Card title="Danh sách phẳng" desc="Tất cả danh mục (không phân cấp)">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {categories?.map((cat) => {
-          const levelBadge = cat.level !== undefined ? (
-            <span className="inline-block px-2 py-0.5 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold">
-              Cấp {cat.level}
-            </span>
-          ) : null;
-
-          const parentInfo = cat.parentName ? (
-            <span className="text-xs text-gray-500">
-              Cha: {cat.parentName}
-            </span>
-          ) : null;
-
-          return (
-            <div 
-              key={cat._id} 
-              className="bg-gray-50 border border-gray-200 rounded-2xl p-4 hover:border-pink-300 transition-colors"
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => getVariants()}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+              disabled={!selectedProductId}
             >
-              <div className="flex items-start gap-3">
-                <div className="text-xl font-extrabold text-pink-600">{cat.code}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-bold text-gray-900 truncate">{cat.name}</h4>
-                    {levelBadge}
+              <RefreshCw className={`w-4 h-4 ${loadingVariants ? "animate-spin" : ""}`} />
+              Tải variants
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateVariant}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold"
+              disabled={!selectedProductId}
+            >
+              <Plus className="w-4 h-4" />
+              Thêm variant
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title="Options → Generate Variants"
+        right={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={saveProductOptions}
+              className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+              disabled={!selectedProductId || savingOptions}
+            >
+              {savingOptions ? "Đang lưu..." : "Lưu options"}
+            </button>
+
+            <button
+              type="button"
+              onClick={doGenerateVariants}
+              className="px-3 py-2 rounded-xl bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold"
+              disabled={!selectedProductId || generating}
+            >
+              {generating ? "Đang generate..." : "Generate"}
+            </button>
+          </div>
+        }
+      >
+        {!selectedProductId ? (
+          <div className="text-sm text-gray-500">Chọn sản phẩm trước để cấu hình options.</div>
+        ) : (
+          <div className="space-y-3">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={genOverwrite} onChange={(e) => setGenOverwrite(e.target.checked)} />
+              <span className="text-gray-700">Overwrite (xoá toàn bộ variants cũ rồi tạo lại)</span>
+            </label>
+
+            <div className="space-y-3">
+              {productOptionsDraft.length === 0 && (
+                <div className="text-sm text-gray-500">Chưa có options. Bấm <b>+ Thêm option</b> để tạo.</div>
+              )}
+
+              {productOptionsDraft.map((opt, idx) => (
+                <div key={`${opt.key}_${idx}`} className="rounded-2xl border border-gray-200 p-4 bg-gray-50/50">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <Field label="Key" required hint="VD: color, size (lowercase)">
+                      <input
+                        value={opt.key}
+                        onChange={(e) => {
+                          const next = productOptionsDraft.slice();
+                          next[idx] = { ...next[idx], key: normalizeKey(e.target.value) };
+                          setProductOptionsDraft(next);
+                        }}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+                        placeholder="color"
+                      />
+                    </Field>
+
+                    <Field label="Label" hint="VD: Màu, Size">
+                      <input
+                        value={opt.label || ""}
+                        onChange={(e) => {
+                          const next = productOptionsDraft.slice();
+                          next[idx] = { ...next[idx], label: e.target.value };
+                          setProductOptionsDraft(next);
+                        }}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+                        placeholder="Màu"
+                      />
+                    </Field>
+
+                    <Field label="Order">
+                      <input
+                        type="number"
+                        value={Number(opt.order || 0)}
+                        onChange={(e) => {
+                          const next = productOptionsDraft.slice();
+                          next[idx] = { ...next[idx], order: Number(e.target.value || 0) };
+                          setProductOptionsDraft(next);
+                        }}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+                      />
+                    </Field>
                   </div>
-                  <div className="space-y-0.5">
-                    <p className="text-sm text-gray-600">Order: {cat.order ?? "-"}</p>
-                    {parentInfo}
+
+                  <div className="mt-3">
+                    <Field label="Values" required hint='Nhập danh sách, phân cách bằng dấu phẩy. VD: "Xanh, Đen, Trắng"'>
+                      <input
+                        value={(opt.values || []).join(", ")}
+                        onChange={(e) => {
+                          const values = String(e.target.value || "")
+                            .split(",")
+                            .map((x) => x.trim())
+                            .filter(Boolean);
+                          const next = productOptionsDraft.slice();
+                          next[idx] = { ...next[idx], values };
+                          setProductOptionsDraft(next);
+                        }}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+                        placeholder="Xanh, Đen, Trắng"
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = productOptionsDraft.filter((_, i) => i !== idx);
+                        setProductOptionsDraft(next);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-red-200 hover:bg-red-50 text-sm font-semibold text-red-700"
+                    >
+                      Xoá option
+                    </button>
                   </div>
                 </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={() => setProductOptionsDraft((prev) => [...prev, { key: "", label: "", values: [], order: prev.length }])}
+                className="w-full py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold"
+                disabled={!selectedProductId}
+              >
+                + Thêm option
+              </button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title={`Danh sách biến thể (${variants.length})`}
+        desc={variantBranchRaw === "all" ? "branch=all: không kèm stock" : `branch=${variantBranchRaw}: có stockQty`}
+        right={
+          <button
+            type="button"
+            onClick={getVariants}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+            disabled={!selectedProductId}
+          >
+            <RefreshCw className={`w-4 h-4 ${loadingVariants ? "animate-spin" : ""}`} />
+            Tải lại
+          </button>
+        }
+      >
+        {!selectedProductId ? (
+          <div className="text-sm text-gray-500">Chọn sản phẩm để xem variants.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left bg-gray-50 border-y border-gray-200">
+                  <th className="px-3 py-2.5 font-semibold text-gray-700">SKU</th>
+                  <th className="px-3 py-2.5 font-semibold text-gray-700">Tên</th>
+                  <th className="px-3 py-2.5 font-semibold text-gray-700">Attributes</th>
+                  <th className="px-3 py-2.5 font-semibold text-gray-700">Barcode</th>
+                  <th className="px-3 py-2.5 font-semibold text-gray-700">Giá</th>
+                  <th className="px-3 py-2.5 font-semibold text-gray-700">Giá sỉ</th>
+                  <th className="px-3 py-2.5 font-semibold text-gray-700">Tồn</th>
+                  <th className="px-3 py-2.5 font-semibold text-gray-700 text-right">Action</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {loadingVariants && (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-6 text-center text-gray-500">
+                      Đang tải variants...
+                    </td>
+                  </tr>
+                )}
+
+                {!loadingVariants && variants.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-6 text-center text-gray-500">
+                      Chưa có biến thể nào.
+                    </td>
+                  </tr>
+                )}
+
+                {!loadingVariants &&
+                  variants.map((v) => {
+                    const tierCount = Array.isArray(v.price_tier) ? v.price_tier.length : 0;
+                    const attrs = (v.attributes || []).map((a) => `${a.k}:${a.v}`).join(", ");
+                    const qty = typeof v.stockQty === "number" ? v.stockQty : null;
+
+                    return (
+                      <tr key={v._id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2.5 font-bold text-gray-900 whitespace-nowrap">{v.sku}</td>
+                        <td className="px-3 py-2.5 text-gray-900">{v.name || "-"}</td>
+                        <td className="px-3 py-2.5 text-gray-700">{attrs || "-"}</td>
+                        <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{v.barcode || "-"}</td>
+                        <td className="px-3 py-2.5 text-gray-900 whitespace-nowrap">
+                          {typeof v.price === "number" ? `${money(v.price)}đ` : <span className="text-xs text-gray-500">inherit</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{tierCount > 0 ? `${tierCount} Giá Sỉ` : "-"}</td>
+                        <td className="px-3 py-2.5 text-gray-900 whitespace-nowrap">
+                          {qty === null ? <span className="text-xs text-gray-500">—</span> : qty}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <div className="inline-flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditVariant(v)}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+                            >
+                              <Pencil className="w-4 h-4" />
+                              Sửa
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openAdjust(v)}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+                              title="Chỉnh tồn kho (branch đang chọn)"
+                              disabled={!variantBranchRaw || variantBranchRaw === "all"}
+                            >
+                              <Boxes className="w-4 h-4" />
+                              Tồn
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openTransfer(v)}
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
+                              title="Chuyển kho giữa 2 chi nhánh"
+                              disabled={branches.length < 2}
+                            >
+                              <ArrowRightLeft className="w-4 h-4" />
+                              Chuyển
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        open={variantCreateOpen}
+        onCancel={() => setVariantCreateOpen(false)}
+        onOk={submitCreateVariant}
+        okText={savingVariant ? "Đang lưu..." : "Tạo"}
+        cancelText="Đóng"
+        confirmLoading={savingVariant}
+        title="Thêm Variant"
+        width={900}
+        destroyOnClose
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Field label="SKU" required hint="SKU riêng cho variant (VD: KAKI-XANH-S)">
+              <input
+                value={variantCreate.sku}
+                onChange={(e) => setVariantCreate((p: any) => ({ ...p, sku: e.target.value.toUpperCase() }))}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
+            </Field>
+
+            <Field label="Tên hiển thị" hint='VD: "Quần Kaki - color:Xanh / size:S"'>
+              <input
+                value={variantCreate.name}
+                onChange={(e) => setVariantCreate((p: any) => ({ ...p, name: e.target.value }))}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
+            </Field>
+          </div>
+
+          <Field label="Barcode">
+            <div className="flex gap-2">
+              <input
+                value={variantCreate.barcode}
+                onChange={(e) => setVariantCreate((p: any) => ({ ...p, barcode: e.target.value }))}
+                className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => openScan("variantCreate")}
+                className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
+              >
+                Quét mã
+              </button>
+            </div>
+          </Field>
+
+          <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+            <div className="font-semibold text-gray-900 mb-2">Attributes</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(selectedProduct?.options || []).map((o) => {
+                const k = normalizeKey(o.key);
+                return (
+                  <Field key={k} label={o.label || k} required>
+                    <input
+                      value={variantCreate.attributesRecord?.[k] || ""}
+                      onChange={(e) => {
+                        const next = { ...(variantCreate.attributesRecord || {}) };
+                        next[k] = e.target.value;
+                        setVariantCreate((p: any) => ({ ...p, attributesRecord: next }));
+                      }}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+                      placeholder={(o.values || []).join(" / ") || "Giá trị"}
+                    />
+                  </Field>
+                );
+              })}
+            </div>
+
+            {(!selectedProduct?.options || selectedProduct.options.length === 0) && (
+              <div className="text-sm text-gray-500">
+                Sản phẩm này chưa có options. Bạn vẫn có thể tạo variant thủ công bằng cách tạo options trước rồi generate.
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-gray-200 p-4">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={!!variantCreate.overridePrice}
+                  onChange={(e) => setVariantCreate((p: any) => ({ ...p, overridePrice: e.target.checked }))}
+                />
+                <span className="text-sm font-semibold text-gray-800">Override giá bán</span>
+              </label>
+              <div className="mt-2">
+                <MoneyInput
+                  value={variantCreate.price}
+                  onChange={(v) => setVariantCreate((p: any) => ({ ...p, price: v }))}
+                  disabled={!variantCreate.overridePrice}
+                  placeholder="Giá bán riêng"
+                />
+                {!variantCreate.overridePrice && <div className="text-xs text-gray-500 mt-1">Tắt override = dùng giá của Product.</div>}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 p-4">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={!!variantCreate.overrideCost}
+                  onChange={(e) => setVariantCreate((p: any) => ({ ...p, overrideCost: e.target.checked }))}
+                />
+                <span className="text-sm font-semibold text-gray-800">Override giá vốn</span>
+              </label>
+              <div className="mt-2">
+                <MoneyInput
+                  value={variantCreate.cost}
+                  onChange={(v) => setVariantCreate((p: any) => ({ ...p, cost: v }))}
+                  disabled={!variantCreate.overrideCost}
+                  placeholder="Giá vốn riêng"
+                />
+                {!variantCreate.overrideCost && <div className="text-xs text-gray-500 mt-1">Tắt override = dùng cost của Product.</div>}
+              </div>
+            </div>
+          </div>
+
+          <TierPriceEditor
+            title="Giá sỉ theo cấp (TierAgency) - VARIANT (override nếu có)"
+            tiers={tiers}
+            value={variantCreate.priceTierMap}
+            onChange={(next) => setVariantCreate((p: any) => ({ ...p, priceTierMap: next }))}
+            disabled={savingVariant}
+            onReloadTiers={getTiers}
+            onOpenBulk={() => openBulk("variantCreate")}
+          />
+
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!variantCreate.isActive}
+              onChange={(e) => setVariantCreate((p: any) => ({ ...p, isActive: e.target.checked }))}
+            />
+            <span className="text-sm text-gray-700">Đang bán (isActive)</span>
+          </label>
+        </div>
+      </Modal>
+
+      {/* ✅ EDIT VARIANT MODAL */}
+      <Modal
+        open={variantEditOpen}
+        onCancel={() => setVariantEditOpen(false)}
+        onOk={submitEditVariant}
+        okText={savingVariant ? "Đang lưu..." : "Lưu"}
+        cancelText="Đóng"
+        confirmLoading={savingVariant}
+        title="Sửa Variant"
+        width={900}
+        destroyOnClose
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Image Upload Section */}
+
+            <Field label="SKU" required>
+              <input
+                value={variantEdit.sku}
+                onChange={(e) => setVariantEdit((p: any) => ({ ...p, sku: e.target.value.toUpperCase() }))}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
+            </Field>
+
+            <Field label="Tên hiển thị">
+              <input
+                value={variantEdit.name}
+                onChange={(e) => setVariantEdit((p: any) => ({ ...p, name: e.target.value }))}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
+            </Field>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+      <div className="font-semibold text-gray-900 mb-3">Hình ảnh hiện tại</div>
+      
+      {(variantEdit.images || []).length === 0 && (
+        <div className="text-sm text-gray-500">Chưa có ảnh.</div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {(variantEdit.images || []).map((img: any) => {
+          const isPrimary = !!img.isPrimary || img.url === variantEdit.thumbnail;
+          return (
+            <div
+              key={img.url}
+              className={`relative border rounded-xl overflow-hidden ${
+                isPrimary ? "border-pink-500 ring-2 ring-pink-200" : "border-gray-200"
+              }`}
+            >
+              <img src={img.url} alt="variant" className="w-full h-24 object-cover" />
+
+              <div className="p-2 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPrimaryInVariantEditModal(img.url)}
+                  className="text-[11px] px-2 py-1 rounded-lg bg-white border border-gray-200 hover:border-pink-300"
+                >
+                  {isPrimary ? "Ảnh chính" : "Chọn chính"}
+                </button>
 
                 <button
                   type="button"
-                  onClick={() => openEditCategory(cat)}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-white text-sm font-semibold shrink-0"
+                  onClick={() => deleteImageInVariantEditModal(img.url)}
+                  className="text-[11px] px-2 py-1 rounded-lg bg-white border border-gray-200 hover:border-red-300"
                 >
-                  <Pencil className="w-4 h-4" />
-                  Sửa
+                  Xoá
                 </button>
               </div>
             </div>
           );
         })}
-
-        {categories.length === 0 && (
-          <div className="col-span-full text-sm text-gray-500 text-center py-6">
-            Chưa có danh mục nào.
-          </div>
-        )}
       </div>
-    </Card>
 
-    {/* ✅ CẬP NHẬT EDIT MODAL */}
-    <Modal
-      open={editCategoryOpen}
-      onCancel={() => setEditCategoryOpen(false)}
-      onOk={saveEditCategory}
-      okText={savingEdit ? "Đang lưu..." : "Lưu"}
-      cancelText="Đóng"
-      confirmLoading={savingEdit}
-      title="Sửa danh mục"
-      width={600}
-      destroyOnClose
-    >
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="CODE" required>
-            <input
-              value={editCategory.code}
-              onChange={(e) => setEditCategory({ ...editCategory, code: e.target.value.toUpperCase() })}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-            />
-          </Field>
-          <Field label="Tên" required>
-            <input
-              value={editCategory.name}
-              onChange={(e) => setEditCategory({ ...editCategory, name: e.target.value })}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-            />
-          </Field>
-        </div>
+      {/* ✅ UPLOAD THÊM ẢNH MỚI */}
+      <div className="mt-4">
+        <div className="text-sm font-medium text-gray-700 mb-2">Upload thêm ảnh</div>
 
-        {/* ✅ MỚI - PARENT SELECTOR */}
-        <Field label="Danh mục cha" hint="Để trống = Root category">
-          <AutoComplete
-            className="w-full"
-            options={categoryOptions.filter(opt => opt.value !== editCategory._id)}
-            filterOption={acFilter}
-            value={editCategory.parentId || undefined}
-            onChange={(val) => setEditCategory({ ...editCategory, parentId: String(val || "") })}
-            onSelect={(val) => setEditCategory({ ...editCategory, parentId: String(val || "") })}
-            allowClear
-            placeholder="Chọn danh mục cha..."
-          />
-        </Field>
-
-        <Field label="Order">
+        <label className="block w-full cursor-pointer">
+          <div className="w-full px-3 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 font-semibold text-gray-700">
+            Bấm để chọn ảnh (tối đa 8)
+          </div>
           <input
-            type="number"
-            value={editCategory.order}
-            onChange={(e) => setEditCategory({ ...editCategory, order: Number(e.target.value || 1) })}
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []).slice(0, 8);
+              setVariantEditImageFiles(files);
+              setVariantEditImagePrimaryIndex(0);
+              e.currentTarget.value = "";
+            }}
+            className="hidden"
+            disabled={uploadingVariantImages || savingVariant}
           />
-        </Field>
-
-        <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={!!editCategory.isActive}
-            onChange={(e) => setEditCategory({ ...editCategory, isActive: e.target.checked })}
-          />
-          <span className="text-sm text-gray-700">Đang dùng (isActive)</span>
         </label>
 
-        {/* ✅ MỚI - INFO PANEL */}
-        {editCategory.level !== undefined && (
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-            <div className="text-sm text-blue-900">
-              <div className="font-semibold mb-1">Thông tin phân cấp:</div>
-              <div>• Cấp hiện tại: <strong>{editCategory.level}</strong></div>
-              {editCategory.parentName && (
-                <div>• Danh mục cha: <strong>{editCategory.parentName}</strong></div>
-              )}
+        {variantEditImageFiles.length > 0 && (
+          <div className="mt-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {variantEditImageFiles.map((file, idx) => {
+                const preview = URL.createObjectURL(file);
+                return (
+                  <div
+                    key={preview}
+                    className={`relative border rounded-xl overflow-hidden ${
+                      idx === variantEditImagePrimaryIndex ? "border-pink-500 ring-2 ring-pink-200" : "border-gray-200"
+                    }`}
+                  >
+                    <img src={preview} alt={file.name} className="w-full h-24 object-cover" />
+                    <div className="p-2 text-xs text-gray-600 truncate">{file.name}</div>
+
+                    <button
+                      type="button"
+                      onClick={() => setVariantEditImagePrimaryIndex(idx)}
+                      className="absolute top-2 left-2 text-[11px] px-2 py-1 rounded-lg bg-white/95 border border-gray-200 hover:border-pink-300"
+                    >
+                      {idx === variantEditImagePrimaryIndex ? "Ảnh chính" : "Chọn chính"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = variantEditImageFiles.filter((_, i) => i !== idx);
+                        setVariantEditImageFiles(next);
+                        setVariantEditImagePrimaryIndex((pi) => {
+                          if (idx === pi) return 0;
+                          if (idx < pi) return Math.max(0, pi - 1);
+                          return pi;
+                        });
+                      }}
+                      className="absolute top-2 right-2 p-1 rounded-lg bg-white/95 border border-gray-200 hover:border-red-300"
+                      title="Xoá ảnh"
+                    >
+                      <X className="w-4 h-4 text-gray-700" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
+
+            <button
+              type="button"
+              onClick={uploadImagesInVariantEditModal}
+              disabled={uploadingVariantImages}
+              className={`mt-3 w-full py-2.5 rounded-xl font-bold transition-colors ${
+                uploadingVariantImages ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-pink-500 hover:bg-pink-600 text-white"
+              }`}
+            >
+              {uploadingVariantImages ? "Đang upload..." : "Upload ảnh"}
+            </button>
           </div>
         )}
       </div>
-    </Modal>
-  </div>
-)}
+    </div>
 
-      {/* ===============================
-          VARIANT TAB
-      =============================== */}
-      {activeTab === "variant" && (
-        <div className="space-y-4">
-          <Card
-            title="Chọn sản phẩm & chi nhánh"
-            desc="Variant được quản lý theo từng sản phẩm cha. Chi nhánh dùng để xem/chỉnh tồn kho."
-          >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Chọn sản phẩm (Product master)" required hint="Gõ để tìm theo SKU / Tên">
-                <AutoComplete
-                  className="w-full"
-                  options={productOptions}
-                  filterOption={acFilter}
-                  value={selectedProductId || undefined}
-                  onChange={(val) => setSelectedProductId(String(val || ""))}
-                  onSelect={(val) => setSelectedProductId(String(val || ""))}
-                  allowClear
-                  placeholder="Chọn sản phẩm..."
-                />
-              </Field>
-
-              <Field label="Chi nhánh" hint='ADMIN/MANAGER chọn "all" hoặc 1 chi nhánh. STAFF bị khóa theo branch token.'>
-                <AutoComplete
-                  className="w-full"
-                  options={branchOptions}
-                  filterOption={acFilter}
-                  value={variantBranchRaw || "all"}
-                  onChange={(val) => onChangeVariantBranch(String(val || "all"))}
-                  onSelect={(val) => onChangeVariantBranch(String(val || "all"))}
-                  allowClear={false}
-                  placeholder="Chọn chi nhánh..."
-                />
-              </Field>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs text-gray-500">
-                {variantBranchRaw === "all" ? "Đang xem: All (không kèm stock trong list)" : `Đang xem: ${variantBranchRaw} (có stockQty)`}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => getVariants()}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
-                  disabled={!selectedProductId}
-                >
-                  <RefreshCw className={`w-4 h-4 ${loadingVariants ? "animate-spin" : ""}`} />
-                  Tải variants
-                </button>
-
-                <button
-                  type="button"
-                  onClick={openCreateVariant}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold"
-                  disabled={!selectedProductId}
-                >
-                  <Plus className="w-4 h-4" />
-                  Thêm variant
-                </button>
-              </div>
-            </div>
-          </Card>
-
-          <Card
-            title="Options → Generate Variants"
-            // desc={
-            //   <span>
-            //     Nhập options (VD: color, size) rồi bấm Generate để tạo variants. (Backend: <b>/products/:id/variants/generate</b>)
-            //   </span>
-            // }
-            right={
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={saveProductOptions}
-                  className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
-                  disabled={!selectedProductId || savingOptions}
-                >
-                  {savingOptions ? "Đang lưu..." : "Lưu options"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={doGenerateVariants}
-                  className="px-3 py-2 rounded-xl bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold"
-                  disabled={!selectedProductId || generating}
-                >
-                  {generating ? "Đang generate..." : "Generate"}
-                </button>
-              </div>
-            }
-          >
-            {!selectedProductId ? (
-              <div className="text-sm text-gray-500">Chọn sản phẩm trước để cấu hình options.</div>
-            ) : (
-              <div className="space-y-3">
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={genOverwrite} onChange={(e) => setGenOverwrite(e.target.checked)} />
-                  <span className="text-gray-700">Overwrite (xoá toàn bộ variants cũ rồi tạo lại)</span>
-                </label>
-
-                <div className="space-y-3">
-                  {productOptionsDraft.length === 0 && (
-                    <div className="text-sm text-gray-500">Chưa có options. Bấm <b>+ Thêm option</b> để tạo.</div>
-                  )}
-
-                  {productOptionsDraft.map((opt, idx) => (
-                    <div key={`${opt.key}_${idx}`} className="rounded-2xl border border-gray-200 p-4 bg-gray-50/50">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <Field label="Key" required hint="VD: color, size (lowercase)">
-                          <input
-                            value={opt.key}
-                            onChange={(e) => {
-                              const next = productOptionsDraft.slice();
-                              next[idx] = { ...next[idx], key: normalizeKey(e.target.value) };
-                              setProductOptionsDraft(next);
-                            }}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                            placeholder="color"
-                          />
-                        </Field>
-
-                        <Field label="Label" hint="VD: Màu, Size">
-                          <input
-                            value={opt.label || ""}
-                            onChange={(e) => {
-                              const next = productOptionsDraft.slice();
-                              next[idx] = { ...next[idx], label: e.target.value };
-                              setProductOptionsDraft(next);
-                            }}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                            placeholder="Màu"
-                          />
-                        </Field>
-
-                        <Field label="Order">
-                          <input
-                            type="number"
-                            value={Number(opt.order || 0)}
-                            onChange={(e) => {
-                              const next = productOptionsDraft.slice();
-                              next[idx] = { ...next[idx], order: Number(e.target.value || 0) };
-                              setProductOptionsDraft(next);
-                            }}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                          />
-                        </Field>
-                      </div>
-
-                      <div className="mt-3">
-                        <Field label="Values" required hint='Nhập danh sách, phân cách bằng dấu phẩy. VD: "Xanh, Đen, Trắng"'>
-                          <input
-                            value={(opt.values || []).join(", ")}
-                            onChange={(e) => {
-                              const values = String(e.target.value || "")
-                                .split(",")
-                                .map((x) => x.trim())
-                                .filter(Boolean);
-                              const next = productOptionsDraft.slice();
-                              next[idx] = { ...next[idx], values };
-                              setProductOptionsDraft(next);
-                            }}
-                            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                            placeholder="Xanh, Đen, Trắng"
-                          />
-                        </Field>
-                      </div>
-
-                      <div className="mt-3 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = productOptionsDraft.filter((_, i) => i !== idx);
-                            setProductOptionsDraft(next);
-                          }}
-                          className="px-3 py-2 rounded-xl border border-red-200 hover:bg-red-50 text-sm font-semibold text-red-700"
-                        >
-                          Xoá option
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={() => setProductOptionsDraft((prev) => [...prev, { key: "", label: "", values: [], order: prev.length }])}
-                    className="w-full py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold"
-                    disabled={!selectedProductId}
-                  >
-                    + Thêm option
-                  </button>
-                </div>
-              </div>
-            )}
-          </Card>
-
-          <Card
-            title={`Danh sách biến thể (${variants.length})`}
-            desc={variantBranchRaw === "all" ? "branch=all: không kèm stock" : `branch=${variantBranchRaw}: có stockQty`}
-            right={
+          <Field label="Barcode">
+            <div className="flex gap-2">
+              <input
+                value={variantEdit.barcode}
+                onChange={(e) => setVariantEdit((p: any) => ({ ...p, barcode: e.target.value }))}
+                className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              />
               <button
                 type="button"
-                onClick={getVariants}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
-                disabled={!selectedProductId}
+                onClick={() => openScan("variantEdit")}
+                className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
               >
-                <RefreshCw className={`w-4 h-4 ${loadingVariants ? "animate-spin" : ""}`} />
-                Tải lại
+                Quét mã
               </button>
-            }
-          >
-            {!selectedProductId ? (
-              <div className="text-sm text-gray-500">Chọn sản phẩm để xem variants.</div>
+            </div>
+          </Field>
+
+          <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+            <div className="font-semibold text-gray-900 mb-2">Attributes</div>
+
+            {Object.keys(variantEdit.attributesRecord || {}).length === 0 ? (
+              <div className="text-sm text-gray-500">Variant này chưa có attributes. (Bạn vẫn có thể nhập thủ công bằng cách thêm key/value)</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left bg-gray-50 border-y border-gray-200">
-                      <th className="px-3 py-2.5 font-semibold text-gray-700">SKU</th>
-                      <th className="px-3 py-2.5 font-semibold text-gray-700">Tên</th>
-                      <th className="px-3 py-2.5 font-semibold text-gray-700">Attributes</th>
-                      <th className="px-3 py-2.5 font-semibold text-gray-700">Barcode</th>
-                      <th className="px-3 py-2.5 font-semibold text-gray-700">Giá</th>
-                      <th className="px-3 py-2.5 font-semibold text-gray-700">Giá sỉ</th>
-                      <th className="px-3 py-2.5 font-semibold text-gray-700">Tồn</th>
-                      <th className="px-3 py-2.5 font-semibold text-gray-700 text-right">Action</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {loadingVariants && (
-                      <tr>
-                        <td colSpan={8} className="px-3 py-6 text-center text-gray-500">
-                          Đang tải variants...
-                        </td>
-                      </tr>
-                    )}
-
-                    {!loadingVariants && variants.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="px-3 py-6 text-center text-gray-500">
-                          Chưa có biến thể nào.
-                        </td>
-                      </tr>
-                    )}
-
-                    {!loadingVariants &&
-                      variants.map((v) => {
-                        const tierCount = Array.isArray(v.price_tier) ? v.price_tier.length : 0;
-                        const attrs = (v.attributes || []).map((a) => `${a.k}:${a.v}`).join(", ");
-                        const qty = typeof v.stockQty === "number" ? v.stockQty : null;
-
-                        return (
-                          <tr key={v._id} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-3 py-2.5 font-bold text-gray-900 whitespace-nowrap">{v.sku}</td>
-                            <td className="px-3 py-2.5 text-gray-900">{v.name || "-"}</td>
-                            <td className="px-3 py-2.5 text-gray-700">{attrs || "-"}</td>
-                            <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{v.barcode || "-"}</td>
-                            <td className="px-3 py-2.5 text-gray-900 whitespace-nowrap">
-                              {typeof v.price === "number" ? `${money(v.price)}đ` : <span className="text-xs text-gray-500">inherit</span>}
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{tierCount > 0 ? `${tierCount} Giá Sỉ` : "-"}</td>
-                            <td className="px-3 py-2.5 text-gray-900 whitespace-nowrap">
-                              {qty === null ? <span className="text-xs text-gray-500">—</span> : qty}
-                            </td>
-                            <td className="px-3 py-2.5 text-right">
-                              <div className="inline-flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => openEditVariant(v)}
-                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                  Sửa
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => openAdjust(v)}
-                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
-                                  title="Chỉnh tồn kho (branch đang chọn)"
-                                  disabled={!variantBranchRaw || variantBranchRaw === "all"}
-                                >
-                                  <Boxes className="w-4 h-4" />
-                                  Tồn
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => openTransfer(v)}
-                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold"
-                                  title="Chuyển kho giữa 2 chi nhánh"
-                                  disabled={branches.length < 2}
-                                >
-                                  <ArrowRightLeft className="w-4 h-4" />
-                                  Chuyển
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {Object.keys(variantEdit.attributesRecord || {}).map((k) => (
+                  <Field key={k} label={k}>
+                    <div className="flex gap-2">
+                      <input
+                        value={variantEdit.attributesRecord?.[k] || ""}
+                        onChange={(e) => {
+                          const next = { ...(variantEdit.attributesRecord || {}) };
+                          next[k] = e.target.value;
+                          setVariantEdit((p: any) => ({ ...p, attributesRecord: next }));
+                        }}
+                        className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = { ...(variantEdit.attributesRecord || {}) };
+                          delete next[k];
+                          setVariantEdit((p: any) => ({ ...p, attributesRecord: next }));
+                        }}
+                        className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-xl"
+                        title="Xóa attribute"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </Field>
+                ))}
               </div>
             )}
-          </Card>
 
-          {/* Create Variant Modal */}
-          <Modal
-            open={variantCreateOpen}
-            onCancel={() => setVariantCreateOpen(false)}
-            onOk={submitCreateVariant}
-            okText={savingVariant ? "Đang lưu..." : "Tạo"}
-            cancelText="Đóng"
-            confirmLoading={savingVariant}
-            title="Thêm Variant"
-            width={900}
-            destroyOnClose
-          >
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="SKU" required hint="SKU riêng cho variant (VD: KAKI-XANH-S)">
-                  <input
-                    value={variantCreate.sku}
-                    onChange={(e) => setVariantCreate((p: any) => ({ ...p, sku: e.target.value.toUpperCase() }))}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  />
-                </Field>
-
-                <Field label="Tên hiển thị" hint='VD: "Quần Kaki - color:Xanh / size:S"'>
-                  <input
-                    value={variantCreate.name}
-                    onChange={(e) => setVariantCreate((p: any) => ({ ...p, name: e.target.value }))}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  />
-                </Field>
-              </div>
-
-              <Field label="Barcode">
-                <div className="flex gap-2">
-                  <input
-                    value={variantCreate.barcode}
-                    onChange={(e) => setVariantCreate((p: any) => ({ ...p, barcode: e.target.value }))}
-                    className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => openScan("variantCreate")}
-                    className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
-                  >
-                    Quét mã
-                  </button>
-                </div>
-              </Field>
-
-              {/* Attributes */}
-              <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
-                <div className="font-semibold text-gray-900 mb-2">Attributes</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {(selectedProduct?.options || []).map((o) => {
-                    const k = normalizeKey(o.key);
-                    return (
-                      <Field key={k} label={o.label || k} required>
-                        <input
-                          value={variantCreate.attributesRecord?.[k] || ""}
-                          onChange={(e) => {
-                            const next = { ...(variantCreate.attributesRecord || {}) };
-                            next[k] = e.target.value;
-                            setVariantCreate((p: any) => ({ ...p, attributesRecord: next }));
-                          }}
-                          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                          placeholder={(o.values || []).join(" / ") || "Giá trị"}
-                        />
-                      </Field>
-                    );
-                  })}
-                </div>
-
-                {(!selectedProduct?.options || selectedProduct.options.length === 0) && (
-                  <div className="text-sm text-gray-500">
-                    Sản phẩm này chưa có options. Bạn vẫn có thể tạo variant thủ công bằng cách tạo options trước rồi generate.
-                  </div>
-                )}
-              </div>
-
-              {/* Overrides */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-gray-200 p-4">
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!!variantCreate.overridePrice}
-                      onChange={(e) => setVariantCreate((p: any) => ({ ...p, overridePrice: e.target.checked }))}
-                    />
-                    <span className="text-sm font-semibold text-gray-800">Override giá bán</span>
-                  </label>
-                  <div className="mt-2">
-                    <MoneyInput
-                      value={variantCreate.price}
-                      onChange={(v) => setVariantCreate((p: any) => ({ ...p, price: v }))}
-                      disabled={!variantCreate.overridePrice}
-                      placeholder="Giá bán riêng"
-                    />
-                    {!variantCreate.overridePrice && <div className="text-xs text-gray-500 mt-1">Tắt override = dùng giá của Product.</div>}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-gray-200 p-4">
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!!variantCreate.overrideCost}
-                      onChange={(e) => setVariantCreate((p: any) => ({ ...p, overrideCost: e.target.checked }))}
-                    />
-                    <span className="text-sm font-semibold text-gray-800">Override giá vốn</span>
-                  </label>
-                  <div className="mt-2">
-                    <MoneyInput
-                      value={variantCreate.cost}
-                      onChange={(v) => setVariantCreate((p: any) => ({ ...p, cost: v }))}
-                      disabled={!variantCreate.overrideCost}
-                      placeholder="Giá vốn riêng"
-                    />
-                    {!variantCreate.overrideCost && <div className="text-xs text-gray-500 mt-1">Tắt override = dùng cost của Product.</div>}
-                  </div>
-                </div>
-              </div>
-
-              <TierPriceEditor
-                title="Giá sỉ theo cấp (TierAgency) - VARIANT (override nếu có)"
-                tiers={tiers}
-                value={variantCreate.priceTierMap}
-                onChange={(next) => setVariantCreate((p: any) => ({ ...p, priceTierMap: next }))}
-                disabled={savingVariant}
-                onReloadTiers={getTiers}
-                onOpenBulk={() => openBulk("variantCreate")}
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                placeholder="thêm key (vd: color)"
+                className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  const key = normalizeKey((e.currentTarget as HTMLInputElement).value);
+                  if (!key) return;
+                  const next = { ...(variantEdit.attributesRecord || {}) };
+                  if (next[key] === undefined) next[key] = "";
+                  setVariantEdit((p: any) => ({ ...p, attributesRecord: next }));
+                  (e.currentTarget as HTMLInputElement).value = "";
+                }}
               />
+              <span className="text-xs text-gray-500">Enter để thêm key</span>
+            </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-gray-200 p-4">
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={!!variantCreate.isActive}
-                  onChange={(e) => setVariantCreate((p: any) => ({ ...p, isActive: e.target.checked }))}
+                  checked={!!variantEdit.overridePrice}
+                  onChange={(e) => setVariantEdit((p: any) => ({ ...p, overridePrice: e.target.checked }))}
                 />
-                <span className="text-sm text-gray-700">Đang bán (isActive)</span>
+                <span className="text-sm font-semibold text-gray-800">Override giá bán</span>
               </label>
+              <div className="mt-2">
+                <MoneyInput
+                  value={variantEdit.price}
+                  onChange={(v) => setVariantEdit((p: any) => ({ ...p, price: v }))}
+                  disabled={!variantEdit.overridePrice}
+                  placeholder="Giá bán riêng"
+                />
+                {!variantEdit.overridePrice && <div className="text-xs text-gray-500 mt-1">Nếu không override, variant sẽ dùng giá từ product.</div>}
+              </div>
             </div>
-          </Modal>
 
-          {/* Edit Variant Modal */}
-          <Modal
-            open={variantEditOpen}
-            onCancel={() => setVariantEditOpen(false)}
-            onOk={submitEditVariant}
-            okText={savingVariant ? "Đang lưu..." : "Lưu"}
-            cancelText="Đóng"
-            confirmLoading={savingVariant}
-            title="Sửa Variant"
-            width={900}
-            destroyOnClose
-          >
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="SKU" required>
-                  <input
-                    value={variantEdit.sku}
-                    onChange={(e) => setVariantEdit((p: any) => ({ ...p, sku: e.target.value.toUpperCase() }))}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  />
-                </Field>
-
-                <Field label="Tên hiển thị">
-                  <input
-                    value={variantEdit.name}
-                    onChange={(e) => setVariantEdit((p: any) => ({ ...p, name: e.target.value }))}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  />
-                </Field>
-              </div>
-
-              <Field label="Barcode">
-                <div className="flex gap-2">
-                  <input
-                    value={variantEdit.barcode}
-                    onChange={(e) => setVariantEdit((p: any) => ({ ...p, barcode: e.target.value }))}
-                    className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => openScan("variantEdit")}
-                    className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold text-sm whitespace-nowrap"
-                  >
-                    Quét mã
-                  </button>
-                </div>
-              </Field>
-
-              {/* Attributes editor */}
-              <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
-                <div className="font-semibold text-gray-900 mb-2">Attributes</div>
-
-                {Object.keys(variantEdit.attributesRecord || {}).length === 0 ? (
-                  <div className="text-sm text-gray-500">Variant này chưa có attributes. (Bạn vẫn có thể nhập thủ công bằng cách thêm key/value)</div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {Object.keys(variantEdit.attributesRecord || {}).map((k) => (
-                      <Field key={k} label={k}>
-                        <input
-                          value={variantEdit.attributesRecord?.[k] || ""}
-                          onChange={(e) => {
-                            const next = { ...(variantEdit.attributesRecord || {}) };
-                            next[k] = e.target.value;
-                            setVariantEdit((p: any) => ({ ...p, attributesRecord: next }));
-                          }}
-                          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                        />
-                      </Field>
-                    ))}
-                  </div>
-                )}
-
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    placeholder="thêm key (vd: color)"
-                    className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter") return;
-                      e.preventDefault();
-                      const key = normalizeKey((e.currentTarget as HTMLInputElement).value);
-                      if (!key) return;
-                      const next = { ...(variantEdit.attributesRecord || {}) };
-                      if (next[key] === undefined) next[key] = "";
-                      setVariantEdit((p: any) => ({ ...p, attributesRecord: next }));
-                      (e.currentTarget as HTMLInputElement).value = "";
-                    }}
-                  />
-                  <span className="text-xs text-gray-500">Enter để thêm key</span>
-                </div>
-              </div>
-
-              {/* Overrides */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-gray-200 p-4">
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!!variantEdit.overridePrice}
-                      onChange={(e) => setVariantEdit((p: any) => ({ ...p, overridePrice: e.target.checked }))}
-                    />
-                    <span className="text-sm font-semibold text-gray-800">Override giá bán</span>
-                  </label>
-                  <div className="mt-2">
-                    <MoneyInput
-                      value={variantEdit.price}
-                      onChange={(v) => setVariantEdit((p: any) => ({ ...p, price: v }))}
-                      disabled={!variantEdit.overridePrice}
-                      placeholder="Giá bán riêng"
-                    />
-                    {!variantEdit.overridePrice && <div className="text-xs text-gray-500 mt-1">Tắt override = backend gửi null để unset.</div>}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-gray-200 p-4">
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!!variantEdit.overrideCost}
-                      onChange={(e) => setVariantEdit((p: any) => ({ ...p, overrideCost: e.target.checked }))}
-                    />
-                    <span className="text-sm font-semibold text-gray-800">Override giá vốn</span>
-                  </label>
-                  <div className="mt-2">
-                    <MoneyInput
-                      value={variantEdit.cost}
-                      onChange={(v) => setVariantEdit((p: any) => ({ ...p, cost: v }))}
-                      disabled={!variantEdit.overrideCost}
-                      placeholder="Giá vốn riêng"
-                    />
-                    {!variantEdit.overrideCost && <div className="text-xs text-gray-500 mt-1">Tắt override = backend gửi null để unset.</div>}
-                  </div>
-                </div>
-              </div>
-
-              <TierPriceEditor
-                title="Giá sỉ theo cấp (TierAgency) - VARIANT (override nếu có)"
-                tiers={tiers}
-                value={variantEdit.priceTierMap}
-                onChange={(next) => setVariantEdit((p: any) => ({ ...p, priceTierMap: next }))}
-                disabled={savingVariant}
-                onReloadTiers={getTiers}
-                onOpenBulk={() => openBulk("variantEdit")}
-              />
-
+            <div className="rounded-2xl border border-gray-200 p-4">
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={!!variantEdit.isActive}
-                  onChange={(e) => setVariantEdit((p: any) => ({ ...p, isActive: e.target.checked }))}
+                  checked={!!variantEdit.overrideCost}
+                  onChange={(e) => setVariantEdit((p: any) => ({ ...p, overrideCost: e.target.checked }))}
                 />
-                <span className="text-sm text-gray-700">Đang bán (isActive)</span>
+                <span className="text-sm font-semibold text-gray-800">Override giá vốn</span>
               </label>
-            </div>
-          </Modal>
-
-          {/* Adjust Stock Modal */}
-          <Modal
-            open={adjustOpen}
-            onCancel={() => setAdjustOpen(false)}
-            onOk={submitAdjust}
-            okText="Lưu"
-            cancelText="Đóng"
-            title={`Chỉnh tồn kho (branch=${variantBranchRaw})`}
-            destroyOnClose
-          >
-            <div className="space-y-3">
-              <div className="text-sm text-gray-700">
-                Variant: <b>{stockTargetVariant?.sku}</b>
-              </div>
-
-              <Field label="Thao tác">
-                <select
-                  value={adjustForm.op}
-                  onChange={(e) => setAdjustForm((p) => ({ ...p, op: e.target.value as any }))}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                >
-                  <option value="IN">IN (Nhập)</option>
-                  <option value="OUT">OUT (Xuất)</option>
-                  <option value="SET">SET (Đặt =)</option>
-                </select>
-              </Field>
-
-              <Field label="Số lượng">
-                <input
-                  value={adjustForm.qty}
-                  onChange={(e) => setAdjustForm((p) => ({ ...p, qty: e.target.value.replace(/[^\d]/g, "") }))}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  inputMode="numeric"
-                  placeholder="0"
+              <div className="mt-2">
+                <MoneyInput
+                  value={variantEdit.cost}
+                  onChange={(v) => setVariantEdit((p: any) => ({ ...p, cost: v }))}
+                  disabled={!variantEdit.overrideCost}
+                  placeholder="Giá vốn riêng"
                 />
-              </Field>
-
-              <Field label="Ghi chú">
-                <input
-                  value={adjustForm.note}
-                  onChange={(e) => setAdjustForm((p) => ({ ...p, note: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  placeholder="VD: nhập hàng"
-                />
-              </Field>
-            </div>
-          </Modal>
-
-          {/* Transfer Stock Modal */}
-          <Modal
-            open={transferOpen}
-            onCancel={() => setTransferOpen(false)}
-            onOk={submitTransfer}
-            okText="Chuyển"
-            cancelText="Đóng"
-            title="Chuyển kho Variant"
-            destroyOnClose
-          >
-            <div className="space-y-3">
-              <div className="text-sm text-gray-700">
-                Variant: <b>{stockTargetVariant?.sku}</b>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="Từ chi nhánh" required hint="Gõ để tìm">
-                  <AutoComplete
-                    className="w-full"
-                    options={branchOptions.filter((x) => x.value !== "all")}
-                    filterOption={acFilter}
-                    value={transferForm.fromBranchId || undefined}
-                    onChange={(val) => setTransferForm((p) => ({ ...p, fromBranchId: String(val || "") }))}
-                    onSelect={(val) => setTransferForm((p) => ({ ...p, fromBranchId: String(val || "") }))}
-                    allowClear
-                    placeholder="Chọn chi nhánh nguồn..."
-                  />
-                </Field>
-
-                <Field label="Đến chi nhánh" required hint="Gõ để tìm">
-                  <AutoComplete
-                    className="w-full"
-                    options={branchOptions.filter((x) => x.value !== "all")}
-                    filterOption={acFilter}
-                    value={transferForm.toBranchId || undefined}
-                    onChange={(val) => setTransferForm((p) => ({ ...p, toBranchId: String(val || "") }))}
-                    onSelect={(val) => setTransferForm((p) => ({ ...p, toBranchId: String(val || "") }))}
-                    allowClear
-                    placeholder="Chọn chi nhánh đích..."
-                  />
-                </Field>
-              </div>
-
-              <Field label="Số lượng chuyển" required>
-                <input
-                  value={transferForm.qty}
-                  onChange={(e) => setTransferForm((p) => ({ ...p, qty: e.target.value.replace(/[^\d]/g, "") }))}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  inputMode="numeric"
-                  placeholder="1"
-                />
-              </Field>
-
-              <Field label="Ghi chú">
-                <input
-                  value={transferForm.note}
-                  onChange={(e) => setTransferForm((p) => ({ ...p, note: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                  placeholder="VD: chuyển hàng sang chi nhánh 2"
-                />
-              </Field>
-
-              <div className="text-xs text-gray-500">
-                <ArrowRightLeft className="w-4 h-4 inline-block mr-1" />
-                Backend sẽ tự “chuyển tối đa” nếu chi nhánh nguồn thiếu tồn.
+                {!variantEdit.overrideCost && <div className="text-xs text-gray-500 mt-1">Nếu không override, variant sẽ dùng giá vốn từ product.</div>}
               </div>
             </div>
-          </Modal>
+          </div>
+
+          <TierPriceEditor
+            title="Giá sỉ theo cấp (TierAgency) - VARIANT (override nếu có)"
+            tiers={tiers}
+            value={variantEdit.priceTierMap}
+            onChange={(next) => setVariantEdit((p: any) => ({ ...p, priceTierMap: next }))}
+            disabled={savingVariant}
+            onReloadTiers={getTiers}
+            onOpenBulk={() => openBulk("variantEdit")}
+          />
+
+          <div className="flex items-center gap-4">
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!variantEdit.isActive}
+                onChange={(e) => setVariantEdit((p: any) => ({ ...p, isActive: e.target.checked }))}
+              />
+              <span className="text-sm text-gray-700">Đang bán (isActive)</span>
+            </label>
+
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!variantEdit.isDefault}
+                onChange={(e) => setVariantEdit((p: any) => ({ ...p, isDefault: e.target.checked }))}
+              />
+              <span className="text-sm text-gray-700">Variant mặc định</span>
+            </label>
+          </div>
         </div>
-      )}
-    </div>
-  );
-};
+      </Modal>
 
+      <Modal
+        open={adjustOpen}
+        onCancel={() => setAdjustOpen(false)}
+        onOk={submitAdjust}
+        okText="Lưu"
+        cancelText="Đóng"
+        title={`Chỉnh tồn kho (branch=${variantBranchRaw})`}
+        destroyOnClose
+      >
+        <div className="space-y-3">
+          <div className="text-sm text-gray-700">
+            Variant: <b>{stockTargetVariant?.sku}</b>
+          </div>
+
+          <Field label="Thao tác">
+            <select
+              value={adjustForm.op}
+              onChange={(e) => setAdjustForm((p) => ({ ...p, op: e.target.value as any }))}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+            >
+              <option value="IN">IN (Nhập)</option>
+              <option value="OUT">OUT (Xuất)</option>
+              <option value="SET">SET (Đặt =)</option>
+            </select>
+          </Field>
+
+          <Field label="Số lượng">
+            <input
+              value={adjustForm.qty}
+              onChange={(e) => setAdjustForm((p) => ({ ...p, qty: e.target.value.replace(/[^\d]/g, "") }))}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              inputMode="numeric"
+              placeholder="0"
+            />
+          </Field>
+
+          <Field label="Ghi chú">
+            <input
+              value={adjustForm.note}
+              onChange={(e) => setAdjustForm((p) => ({ ...p, note: e.target.value }))}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              placeholder="VD: nhập hàng"
+            />
+          </Field>
+        </div>
+      </Modal>
+
+      <Modal
+        open={transferOpen}
+        onCancel={() => setTransferOpen(false)}
+        onOk={submitTransfer}
+        okText="Chuyển"
+        cancelText="Đóng"
+        title="Chuyển kho Variant"
+        destroyOnClose
+      >
+        <div className="space-y-3">
+          <div className="text-sm text-gray-700">
+            Variant: <b>{stockTargetVariant?.sku}</b>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Field label="Từ chi nhánh" required hint="Gõ để tìm">
+              <AutoComplete
+                className="w-full"
+                options={branchOptions.filter((x) => x.value !== "all")}
+                filterOption={acFilter}
+                value={transferForm.fromBranchId || undefined}
+                onChange={(val) => setTransferForm((p) => ({ ...p, fromBranchId: String(val || "") }))}
+                onSelect={(val) => setTransferForm((p) => ({ ...p, fromBranchId: String(val || "") }))}
+                allowClear
+                placeholder="Chọn chi nhánh nguồn..."
+              />
+            </Field>
+
+            <Field label="Đến chi nhánh" required hint="Gõ để tìm">
+              <AutoComplete
+                className="w-full"
+                options={branchOptions.filter((x) => x.value !== "all")}
+                filterOption={acFilter}
+                value={transferForm.toBranchId || undefined}
+                onChange={(val) => setTransferForm((p) => ({ ...p, toBranchId: String(val || "") }))}
+                onSelect={(val) => setTransferForm((p) => ({ ...p, toBranchId: String(val || "") }))}
+                allowClear
+                placeholder="Chọn chi nhánh đích..."
+              />
+            </Field>
+          </div>
+
+          <Field label="Số lượng chuyển" required>
+            <input
+              value={transferForm.qty}
+              onChange={(e) => setTransferForm((p) => ({ ...p, qty: e.target.value.replace(/[^\d]/g, "") }))}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              inputMode="numeric"
+              placeholder="1"
+            />
+          </Field>
+
+          <Field label="Ghi chú">
+            <input
+              value={transferForm.note}
+              onChange={(e) => setTransferForm((p) => ({ ...p, note: e.target.value }))}
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+              placeholder="VD: chuyển hàng sang chi nhánh 2"
+            />
+          </Field>
+
+          <div className="text-xs text-gray-500">
+            <ArrowRightLeft className="w-4 h-4 inline-block mr-1" />
+            Backend sẽ tự "chuyển tối đa" nếu chi nhánh nguồn thiếu tồn.
+          </div>
+        </div>
+      </Modal>
+    </div>
+  )}
+</div>);
+};
 export default ProductInputSection;

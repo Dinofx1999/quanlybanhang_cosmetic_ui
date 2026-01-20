@@ -1,6 +1,6 @@
 // src/data/shopMock.ts
 export type Category = {
-  id: string;
+  _id: string;
   name: string;
   children?: Category[]; // ✅ recursive
 };
@@ -139,47 +139,47 @@ export const products: Product[] = [
 
 export const categories: Category[] = [
   {
-    id: "skincare",
+    _id: "skincare",
     name: "Skincare",
     children: [
       {
-        id: "cleanser",
+        _id: "cleanser",
         name: "Làm sạch",
         children: [
-          { id: "foam", name: "Sữa rửa mặt" },
-          { id: "oil", name: "Tẩy trang dầu" },
-          { id: "micellar", name: "Nước tẩy trang" },
+          { _id: "foam", name: "Sữa rửa mặt" },
+          { _id: "oil", name: "Tẩy trang dầu" },
+          { _id: "micellar", name: "Nước tẩy trang" },
         ],
       },
       {
-        id: "treatment",
+        _id: "treatment",
         name: "Đặc trị",
         children: [
-          { id: "serum", name: "Serum" },
-          { id: "retinol", name: "Retinol" },
-          { id: "aha-bha", name: "AHA/BHA" },
+          { _id: "serum", name: "Serum" },
+          { _id: "retinol", name: "Retinol" },
+          { _id: "aha-bha", name: "AHA/BHA" },
         ],
       },
     ],
   },
   {
-    id: "makeup",
+    _id: "makeup",
     name: "Makeup",
     children: [
       {
-        id: "lips",
+        _id: "lips",
         name: "Môi",
         children: [
-          { id: "lipstick", name: "Son thỏi" },
-          { id: "tint", name: "Tint" },
+          { _id: "lipstick", name: "Son thỏi" },
+          { _id: "tint", name: "Tint" },
         ],
       },
       {
-        id: "face",
+        _id: "face",
         name: "Mặt",
         children: [
-          { id: "cushion", name: "Cushion" },
-          { id: "powder", name: "Phấn phủ" },
+          { _id: "cushion", name: "Cushion" },
+          { _id: "powder", name: "Phấn phủ" },
         ],
       },
     ],

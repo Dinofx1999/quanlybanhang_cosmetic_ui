@@ -20,7 +20,7 @@ function findNodeByPath(items: Category[], pathSegs: string[]): Category | undef
   let curList = items;
   let curNode: Category | undefined;
   for (const seg of pathSegs) {
-    curNode = curList.find((x) => x.id === seg);
+    curNode = curList.find((x) => x._id === seg);
     if (!curNode) return undefined;
     curList = curNode.children || [];
   }
@@ -35,17 +35,18 @@ export default function CategoryBar({ items, activeId, onChange }: Props) {
 
   // để panel hiển thị ổn định khi user click
   const [openLv1, setOpenLv1] = useState<string>(lv1);
+  const [id_category_create, setId_category_create] = useState<string>("");
 
   useEffect(() => {
     setOpenLv1(lv1 || "");
   }, [lv1]);
 
-  const lv1Node = useMemo(() => (openLv1 ? items.find((x) => x.id === openLv1) : undefined), [items, openLv1]);
+  const lv1Node = useMemo(() => (openLv1 ? items.find((x) => x._id === openLv1) : undefined), [items, openLv1]);
   const lv2Items = lv1Node?.children || [];
 
   const lv2Node = useMemo(() => {
     if (!openLv1 || !lv2) return undefined;
-    return (lv1Node?.children || []).find((x) => x.id === lv2);
+    return (lv1Node?.children || []).find((x) => x._id === lv2);
   }, [lv1Node, openLv1, lv2]);
 
   const lv3Items = lv2Node?.children || [];
@@ -71,11 +72,11 @@ export default function CategoryBar({ items, activeId, onChange }: Props) {
   };
 
   // label helper
-  const lv1Label = useMemo(() => (lv1 ? items.find((x) => x.id === lv1)?.name : ""), [items, lv1]);
+  const lv1Label = useMemo(() => (lv1 ? items.find((x) => x._id === lv1)?.name : ""), [items, lv1]);
   const lv2Label = useMemo(() => {
     if (!lv1 || !lv2) return "";
-    const p = items.find((x) => x.id === lv1);
-    return (p?.children || []).find((x) => x.id === lv2)?.name || "";
+    const p = items.find((x) => x._id === lv1);
+    return (p?.children || []).find((x) => x._id === lv2)?.name || "";
   }, [items, lv1, lv2]);
 
   return (
@@ -99,12 +100,12 @@ export default function CategoryBar({ items, activeId, onChange }: Props) {
           Tất cả
         </button>
 
-        {items.map((p) => {
-          const active = !!activeId && lv1 === p.id;
+        {items?.map((p) => {
+          const active = !!activeId && lv1 === p._id;
           return (
             <button
-              key={p.id}
-              onClick={() => selectLv1(p.id)}
+              key={p._id}
+              onClick={() => selectLv1(p._id)}
               className={[
                 "px-4 py-2 rounded-2xl border text-sm font-semibold whitespace-nowrap",
                 active ? "bg-pink-500 text-white border-pink-500" : "bg-white border-pink-200 text-pink-700 hover:bg-pink-50",
@@ -122,7 +123,7 @@ export default function CategoryBar({ items, activeId, onChange }: Props) {
         <div className="mt-3 rounded-[18px] border border-pink-100 bg-pink-50/40 p-3">
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="text-sm font-extrabold text-gray-900">
-              {items.find((x) => x.id === openLv1)?.name}{" "}
+              {items.find((x) => x._id === openLv1)?.name}{" "}
               <span className="text-gray-500 font-semibold">/ Level 2</span>
             </div>
 
@@ -145,15 +146,15 @@ export default function CategoryBar({ items, activeId, onChange }: Props) {
                   : "bg-white border-pink-200 text-gray-700 hover:border-pink-300 hover:bg-pink-50",
               ].join(" ")}
             >
-              Tất cả {items.find((x) => x.id === openLv1)?.name}
+              Tất cả {items.find((x) => x._id === openLv1)?.name}
             </button>
 
             {lv2Items.map((c2) => {
-              const active = lv1 === openLv1 && lv2 === c2.id;
+              const active = lv1 === openLv1 && lv2 === c2._id;
               return (
                 <button
-                  key={c2.id}
-                  onClick={() => selectLv2(openLv1, c2.id)}
+                  key={c2._id}
+                  onClick={() => selectLv2(openLv1, c2._id)}
                   className={[
                     "px-3 py-2 rounded-2xl border text-sm font-semibold",
                     active
@@ -200,11 +201,11 @@ export default function CategoryBar({ items, activeId, onChange }: Props) {
                 </button>
 
                 {lv3Items.map((c3) => {
-                  const active = lv1 === openLv1 && lv2 === lv2Node.id && lv3 === c3.id;
+                  const active = lv1 === openLv1 && lv2 === lv2Node._id && lv3 === c3._id;
                   return (
                     <button
-                      key={c3.id}
-                      onClick={() => selectLv3(openLv1, lv2Node.id, c3.id)}
+                      key={c3._id}
+                      onClick={() => selectLv3(openLv1, lv2Node._id, c3._id)}
                       className={[
                         "px-3 py-2 rounded-2xl border text-sm font-semibold",
                         active

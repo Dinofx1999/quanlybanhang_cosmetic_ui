@@ -20,7 +20,8 @@ import { isAuthenticated, getCurrentUser } from "./services/authService";
 import api from "./services/api";
 
 
-import ShopOnlinePage from "./components/ShopOnline/ShopHome";
+import ShopOnlinePage from "./components/ShopOnline/pages/ShopHome";
+import ProductDetailPage from "./components/ShopOnline/pages/ProductDetailPage";
 
 // ===============================
 // Types
@@ -597,6 +598,7 @@ const res = await api.get("/products", { params });
     <Routes>
       <Route path="/login" element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />} />
       <Route path="/shop" element={<ShopOnlinePage />} />
+      <Route path="/product/:id" element={<ProductDetailPage />} />
       <Route
         path="/"
         element={

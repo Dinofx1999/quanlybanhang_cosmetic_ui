@@ -1,15 +1,21 @@
 // src/pages/ShopHome.tsx
 import React, { useMemo, useRef, useState } from "react";
-import ShopHeader from "../ShopOnline/components/shop/ShopHeader";
-import CategoryBar from "../ShopOnline/components/shop/CategoryBar";
-import VoucherBar from "../ShopOnline/components/shop/VoucherBar";
-import FlashSale from "../ShopOnline/components/shop/FlashSale";
-import FilterSortBar, { Filters, SortKey } from "../ShopOnline/components/shop/FilterSortBar";
-import ProductGrid from "../ShopOnline/components/shop/ProductGrid";
-import ShopFooter from "../ShopOnline/components/shop/ShopFooter";
-import AdsBanner from "../ShopOnline/components/shop/AdsBanner";
+import ShopHeader from "../components/shop/ShopHeader";
+import CategoryBar from "../components/shop/CategoryBar";
+import VoucherBar from "../components/shop/VoucherBar";
+import FlashSale from "../components/shop/FlashSale";
+import FilterSortBar, { Filters, SortKey } from "../components/shop/FilterSortBar";
+import ProductGrid from "../components/shop/ProductGrid";
+import ShopFooter from "../components/shop/ShopFooter";
+import AdsBanner from "../components/shop/AdsBanner";
+import ProductQuickView from "../components/shop/ProductQuickView";
 
-import { categories, products, flashSaleEndsAt } from "../ShopOnline/data/shopMock";
+//HELPER
+import {getLastId} from "../helpers/format"
+import {normalizeProductsFromApi} from "../helpers/func_helper"
+
+import { flashSaleEndsAt } from "../data/shopMock";
+import api from "../../../services/api";
 
 export default function ShopHome() {
   const flashRef = useRef<HTMLDivElement | null>(null);
@@ -20,7 +26,57 @@ export default function ShopHome() {
   const [sort, setSort] = useState<SortKey>("relevance");
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const maxPrice = useMemo(() => Math.max(...products.map((p) => p.originalPrice || p.price)), []);
+  const [openDetail, setOpenDetail] = useState(false);
+ const [detailId, setDetailId] = useState<string>("");
+
+    const openProduct = (id: string) => {
+  setDetailId(id);
+  setOpenDetail(true);
+};
+
+  // pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(24);
+
+   // load categories from API
+  const [categories, setCategories] = React.useState<any[]>([]);
+    const fetchCategories = React.useCallback(async () => {
+        try {
+        const res = await api.get("/public/categories/tree");
+        setCategories(res.data.tree || []);
+        console.log("Fetched categories:", res.data.tree);
+        } catch {
+        setCategories([]);
+        }
+    }, []);
+    React.useEffect(() => {
+        fetchCategories();
+    }, []);
+
+
+    //Load products from API
+    const [products, setProducts] = React.useState<any[]>([]);
+
+    const fetchProducts = React.useCallback(async (id_cat: string) => {
+        try {
+            let url = `/public/categories/${id_cat}/products?includeSubcategories=true`;
+            if(id_cat===""){
+                url=`/public/products`;
+            }
+            const res = await api.get(url);
+            const uiItems = normalizeProductsFromApi(res.data.items || []);
+            setProducts(uiItems);
+        } catch {
+            setProducts([]);
+        }
+    }, []);
+    React.useEffect(() => {
+        const id_cat = getLastId(catId);
+        fetchProducts(id_cat);
+    }, [catId]);
+
+
+      const maxPrice = useMemo(() => Math.max(...products.map((p) => p.originalPrice || p.price)), []);
   const [filters, setFilters] = useState<Filters>({
     priceMin: 0,
     priceMax: maxPrice,
@@ -30,10 +86,7 @@ export default function ShopHome() {
     mall: false,
   });
 
-  // pagination
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(24);
-
+    
   const resetAll = () => {
     setSort("relevance");
     setFilters({
@@ -102,6 +155,8 @@ export default function ShopHome() {
     setPageSize(ps);
   };
 
+  const flashItems = products.filter((p) => p.flashSale);
+
   return (
     <div className="min-h-screen w-full bg-pink-50/40">
       <ShopHeader
@@ -117,7 +172,9 @@ export default function ShopHome() {
         <div className="w-full px-5 md:px-8 lg:px-10 py-5 space-y-4">
         <AdsBanner />
         <div ref={flashRef}>
-          <FlashSale endsAt={flashSaleEndsAt} items={products.filter((p) => p.flashSale)} />
+        {flashSaleEndsAt && flashItems.length > 0 && (
+        <FlashSale endsAt={flashSaleEndsAt} items={flashItems} />
+        )}
         </div>
          <VoucherBar onApply={() => {}} />
         <div className="bg-white border border-pink-100 rounded-[22px] p-3 md:p-4 shadow-sm">
@@ -162,12 +219,18 @@ export default function ShopHome() {
         </div>
 
         <ProductGrid
-          items={paged}
+          items={products}
           page={page}
           pageSize={pageSize}
           total={total}
           onPageChange={onPageChange}
         />
+
+        <ProductQuickView
+            open={openDetail}
+            productId={detailId}
+            onClose={() => setOpenDetail(false)}
+            />
       </div>
 
       <ShopFooter />
