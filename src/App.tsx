@@ -1,6 +1,13 @@
 // src/App.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import { message } from "antd";
 
 import LoginPage from "./components/POS_ONLINE/Auth/LoginPage";
@@ -18,7 +25,6 @@ import { BRANCH_KEY, getPosBranchId } from "./services/branchContext";
 
 import { isAuthenticated, getCurrentUser } from "./services/authService";
 import api from "./services/api";
-
 
 import ShopOnlinePage from "./components/ShopOnline/pages/ShopHome";
 import ProductDetailPage from "./components/ShopOnline/pages/ProductDetailPage";
@@ -56,7 +62,7 @@ export interface Product {
   images?: ProductImage[];
   isActive?: boolean;
   attributes?: VariantAttr[]; // ✅ NEW (optional)
-  productId?: string; 
+  productId?: string;
 }
 
 export interface OrderItem extends Product {
@@ -139,7 +145,14 @@ const AppInner: React.FC = () => {
 
   // POS orders local
   const [activeOrders, setActiveOrders] = useState<Order[]>([
-    { id: 1, orderNumber: "TMP001", customer: "Khách lẻ", items: [], createdAt: new Date(), status: "active" },
+    {
+      id: 1,
+      orderNumber: "TMP001",
+      customer: "Khách lẻ",
+      items: [],
+      createdAt: new Date(),
+      status: "active",
+    },
   ]);
   const [currentOrderId, setCurrentOrderId] = useState<number>(1);
   const [nextOrderNumber, setNextOrderNumber] = useState<number>(2);
@@ -174,9 +187,14 @@ const AppInner: React.FC = () => {
       }));
       setBranches(mapped.filter((b) => b.isActive !== false));
     } catch (err: any) {
-      console.error("Fetch branches error:", err?.response?.data || err?.message);
+      console.error(
+        "Fetch branches error:",
+        err?.response?.data || err?.message,
+      );
       setBranches([]);
-      message.error(err?.response?.data?.message || "Không tải được danh sách chi nhánh.");
+      message.error(
+        err?.response?.data?.message || "Không tải được danh sách chi nhánh.",
+      );
     }
   }, []);
 
@@ -195,45 +213,51 @@ const AppInner: React.FC = () => {
           : String(localStorage.getItem(BRANCH_KEY) || posBranchId || "all");
 
       const params =
-  effective && effective !== "all"
-    ? { branchId: effective, mode: "pos" } // ✅ IMPORTANT: load variants for POS
-    : { mode: "pos" };
+        effective && effective !== "all"
+          ? { branchId: effective, mode: "pos" } // ✅ IMPORTANT: load variants for POS
+          : { mode: "pos" };
 
-const res = await api.get("/products", { params });
+      const res = await api.get("/products", { params });
 
       const items = res.data?.items || [];
       const mapped: Product[] = items.map((p: any) => ({
-  _id: String(p._id),                 // ✅ variantId
-  productId: p.productId ? String(p.productId) : undefined, // optional
-  sku: p.sku || "",
-  name: p.name || "",
-  categoryId: p.categoryId ? String(p.categoryId) : null,
-  categoryName: p.categoryName || "",
-  price: Number(p.price || 0),
+        _id: String(p._id), // ✅ variantId
+        productId: p.productId ? String(p.productId) : undefined, // optional
+        sku: p.sku || "",
+        name: p.name || "",
+        categoryId: p.categoryId ? String(p.categoryId) : null,
+        categoryName: p.categoryName || "",
+        price: Number(p.price || 0),
 
-  price_tier: Array.isArray(p.price_tier)
-    ? p.price_tier.map((x: any) => ({
-        tierId: String(x.tierId),
-        price: Number(x.price || 0),
-      }))
-    : [],
+        price_tier: Array.isArray(p.price_tier)
+          ? p.price_tier.map((x: any) => ({
+              tierId: String(x.tierId),
+              price: Number(x.price || 0),
+            }))
+          : [],
 
-  cost: Number(p.cost || 0),
-  brand: p.brand || "",
-  barcode: p.barcode || "",
-  stock: Number(p.stock || 0),
-  thumbnail: p.thumbnail || "",
-  images: Array.isArray(p.images) ? p.images : [],
-  isActive: p.isActive !== false,
+        cost: Number(p.cost || 0),
+        brand: p.brand || "",
+        barcode: p.barcode || "",
+        stock: Number(p.stock || 0),
+        thumbnail: p.thumbnail || "",
+        images: Array.isArray(p.images) ? p.images : [],
+        isActive: p.isActive !== false,
 
-  attributes: Array.isArray(p.attributes)
-    ? p.attributes.map((a: any) => ({ k: String(a.k || ""), v: String(a.v || "") }))
-    : [],
-}));
+        attributes: Array.isArray(p.attributes)
+          ? p.attributes.map((a: any) => ({
+              k: String(a.k || ""),
+              v: String(a.v || ""),
+            }))
+          : [],
+      }));
 
       setProductsRaw(mapped);
     } catch (err: any) {
-      console.error("Fetch products error:", err?.response?.data || err?.message);
+      console.error(
+        "Fetch products error:",
+        err?.response?.data || err?.message,
+      );
       setProductsRaw([]);
       message.error(err?.response?.data?.message || "Không tải được sản phẩm.");
     } finally {
@@ -257,7 +281,9 @@ const res = await api.get("/products", { params });
       setPosBranchId(next);
 
       // clear current cart
-      setActiveOrders((prev) => prev.map((o) => (o.id === currentOrderId ? { ...o, items: [] } : o)));
+      setActiveOrders((prev) =>
+        prev.map((o) => (o.id === currentOrderId ? { ...o, items: [] } : o)),
+      );
 
       fetchProducts();
       message.info("Đã đổi chi nhánh, giỏ hàng hiện tại được làm trống.");
@@ -278,18 +304,24 @@ const res = await api.get("/products", { params });
     const nextPosBranch = getInitialPosBranchId(u);
 
     if (mustSelectSingleBranchForPOS(u, nextPosBranch)) {
-      message.warning("POS bắt buộc chọn 1 chi nhánh (không được chọn Tất cả). Vui lòng chọn chi nhánh ở Layout.");
+      message.warning(
+        "POS bắt buộc chọn 1 chi nhánh (không được chọn Tất cả). Vui lòng chọn chi nhánh ở Layout.",
+      );
       navigate("/inventory", { replace: true });
     }
   }, [isLoggedIn, location.pathname, navigate]);
 
   // Stock deduction display (UI only) - show tồn “sau khi trừ trong giỏ”
-  const currentOrder = useMemo(() => activeOrders.find((o) => o.id === currentOrderId), [activeOrders, currentOrderId]);
+  const currentOrder = useMemo(
+    () => activeOrders.find((o) => o.id === currentOrderId),
+    [activeOrders, currentOrderId],
+  );
 
   const reservedMap = useMemo(() => {
     const m = new Map<string, number>();
     const items = currentOrder?.items || [];
-    for (const it of items) m.set(it._id, (m.get(it._id) || 0) + Number(it.quantity || 0));
+    for (const it of items)
+      m.set(it._id, (m.get(it._id) || 0) + Number(it.quantity || 0));
     return m;
   }, [currentOrder]);
 
@@ -301,7 +333,8 @@ const res = await api.get("/products", { params });
   }, [productsRaw, reservedMap]);
 
   // POS handlers
-  const getCurrentOrderFn = (): Order | undefined => activeOrders.find((order) => order.id === currentOrderId);
+  const getCurrentOrderFn = (): Order | undefined =>
+    activeOrders.find((order) => order.id === currentOrderId);
 
   const createNewOrder = (): void => {
     const newOrder: Order = {
@@ -342,12 +375,16 @@ const res = await api.get("/products", { params });
         if (existing) {
           return {
             ...o,
-            items: o.items.map((it) => (it._id === product._id ? { ...it, quantity: Number(it.quantity || 0) + 1 } : it)),
+            items: o.items.map((it) =>
+              it._id === product._id
+                ? { ...it, quantity: Number(it.quantity || 0) + 1 }
+                : it,
+            ),
           };
         }
 
         return { ...o, items: [...o.items, { ...product, quantity: 1 }] };
-      })
+      }),
     );
   };
 
@@ -367,24 +404,33 @@ const res = await api.get("/products", { params });
             })
             .filter((it) => Number(it.quantity || 0) > 0),
         };
-      })
+      }),
     );
   };
 
   const removeFromCart = (productId: string): void => {
     setActiveOrders((prev) =>
-      prev.map((o) => (o.id !== currentOrderId ? o : { ...o, items: o.items.filter((it) => it._id !== productId) }))
+      prev.map((o) =>
+        o.id !== currentOrderId
+          ? o
+          : { ...o, items: o.items.filter((it) => it._id !== productId) },
+      ),
     );
   };
 
   const updateCustomerName = (orderId: number, name: string): void => {
-    setActiveOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, customer: name } : o)));
+    setActiveOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, customer: name } : o)),
+    );
   };
 
   const getTotal = (orderId: number): number => {
     const order = activeOrders.find((o) => o.id === orderId);
     if (!order) return 0;
-    return order.items.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0), 0);
+    return order.items.reduce(
+      (sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0),
+      0,
+    );
   };
 
   // ✅ NEW: allow POSSection to replace cart items (for wholesale price recalc)
@@ -393,7 +439,7 @@ const res = await api.get("/products", { params });
       prev.map((o) => {
         if (o.id !== currentOrderId) return o;
         return { ...o, items: Array.isArray(items) ? items : [] };
-      })
+      }),
     );
   };
 
@@ -408,10 +454,18 @@ const res = await api.get("/products", { params });
     status: "PENDING" | "CONFIRM" | "DEBT",
     payload: {
       branchId: string;
-      customer?: { name?: string; phone?: string; email?: string; dob?: string };
+      customer?: {
+        name?: string;
+        phone?: string;
+        email?: string;
+        dob?: string;
+      };
       delivery: { method: "PICKUP" | "SHIP"; address?: string; note?: string };
 
-      payments?: { method: "CASH" | "BANK" | "CARD" | "WALLET"; amount: number }[];
+      payments?: {
+        method: "CASH" | "BANK" | "CARD" | "WALLET";
+        amount: number;
+      }[];
 
       discount: number;
       extraFee: number;
@@ -419,16 +473,25 @@ const res = await api.get("/products", { params });
 
       pointsRedeemed?: number;
       pointsRedeemAmount?: number;
-    }
+    },
   ): Promise<{ _id: string }> => {
     const order = getCurrentOrderFn();
     if (!order) throw new Error("NO_CURRENT_ORDER");
-    if (!payload.branchId || payload.branchId === "all") throw new Error("POS_BRANCH_REQUIRED");
+    if (!payload.branchId || payload.branchId === "all")
+      throw new Error("POS_BRANCH_REQUIRED");
 
-    const items = order.items.map((it) => ({ productId: it._id, qty: Number(it.quantity || 0) }));
+    const items = order.items.map((it) => ({
+      productId: it._id,
+      qty: Number(it.quantity || 0),
+    }));
     if (!items.length) throw new Error("EMPTY_CART");
 
-    const subtotal = moneyInt(order.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0));
+    const subtotal = moneyInt(
+      order.items.reduce(
+        (s, it) => s + Number(it.price || 0) * Number(it.quantity || 0),
+        0,
+      ),
+    );
     const discount = moneyInt(payload.discount || 0);
     const extraFee = moneyInt(payload.extraFee || 0);
 
@@ -448,15 +511,26 @@ const res = await api.get("/products", { params });
           method: String(p?.method || "").toUpperCase(),
           amount: moneyInt(p?.amount || 0),
         }))
-        .filter((p) => ["CASH", "BANK", "CARD", "WALLET"].includes(p.method) && Number.isFinite(p.amount) && p.amount >= 0)
-        .map((p) => ({ method: p.method as "CASH" | "BANK" | "CARD" | "WALLET", amount: p.amount }));
+        .filter(
+          (p) =>
+            ["CASH", "BANK", "CARD", "WALLET"].includes(p.method) &&
+            Number.isFinite(p.amount) &&
+            p.amount >= 0,
+        )
+        .map((p) => ({
+          method: p.method as "CASH" | "BANK" | "CARD" | "WALLET",
+          amount: p.amount,
+        }));
 
     let payments = cleanPayments(payload.payments || []);
 
     // =========================
     // ✅ Redeem server-truth (only CONFIRM)
     // =========================
-    let pointsRedeemed = Math.max(0, Math.floor(Number(payload.pointsRedeemed || 0)));
+    let pointsRedeemed = Math.max(
+      0,
+      Math.floor(Number(payload.pointsRedeemed || 0)),
+    );
     let pointsRedeemAmount = 0;
 
     if (status !== "CONFIRM") {
@@ -500,19 +574,27 @@ const res = await api.get("/products", { params });
     if (status === "CONFIRM") {
       if (totalAfterRedeem <= 0) throw new Error("TOTAL_INVALID");
 
-      if (payments.length === 0) payments = [{ method: "CASH", amount: totalAfterRedeem }];
-      if (payments.length === 1 && moneyInt(payments[0].amount) === 0) payments = [{ ...payments[0], amount: totalAfterRedeem }];
+      if (payments.length === 0)
+        payments = [{ method: "CASH", amount: totalAfterRedeem }];
+      if (payments.length === 1 && moneyInt(payments[0].amount) === 0)
+        payments = [{ ...payments[0], amount: totalAfterRedeem }];
 
-      const sum = moneyInt(payments.reduce((s, p) => s + Number(p.amount || 0), 0));
-      if (sum !== totalAfterRedeem) throw new Error("CONFIRM_REQUIRE_FULL_PAYMENT");
+      const sum = moneyInt(
+        payments.reduce((s, p) => s + Number(p.amount || 0), 0),
+      );
+      if (sum !== totalAfterRedeem)
+        throw new Error("CONFIRM_REQUIRE_FULL_PAYMENT");
     }
 
     if (status === "DEBT") {
       if (totalAfterRedeem <= 0) throw new Error("TOTAL_INVALID");
       if (payments.length === 0) throw new Error("DEBT_REQUIRES_PAYMENT");
 
-      const sum = moneyInt(payments.reduce((s, p) => s + Number(p.amount || 0), 0));
-      if (!(sum > 0 && sum < totalAfterRedeem)) throw new Error("DEBT_REQUIRE_PARTIAL_PAYMENT");
+      const sum = moneyInt(
+        payments.reduce((s, p) => s + Number(p.amount || 0), 0),
+      );
+      if (!(sum > 0 && sum < totalAfterRedeem))
+        throw new Error("DEBT_REQUIRE_PARTIAL_PAYMENT");
     }
 
     // =========================
@@ -533,7 +615,9 @@ const res = await api.get("/products", { params });
       delivery: {
         method: payload.delivery.method,
         address: isShip ? payload.delivery.address || "" : "",
-        note: payload.delivery.note || (payload.delivery.method === "PICKUP" ? "Bán tại quầy" : ""),
+        note:
+          payload.delivery.note ||
+          (payload.delivery.method === "PICKUP" ? "Bán tại quầy" : ""),
       },
       discount,
       extraFee,
@@ -542,7 +626,9 @@ const res = await api.get("/products", { params });
       payments,
 
       ...(status === "CONFIRM" && pointsRedeemed > 0 ? { pointsRedeemed } : {}),
-      ...(status === "CONFIRM" && pointsRedeemAmount > 0 ? { pointsRedeemAmount } : {}),
+      ...(status === "CONFIRM" && pointsRedeemAmount > 0
+        ? { pointsRedeemAmount }
+        : {}),
     };
 
     const key = "pos-create-order";
@@ -554,7 +640,13 @@ const res = await api.get("/products", { params });
       const id = String(created?._id || "");
       if (!id) throw new Error("ORDER_CREATE_FAILED");
 
-      setActiveOrders((prev) => prev.map((o) => (o.id === currentOrderId ? { ...o, items: [], customer: "Khách lẻ" } : o)));
+      setActiveOrders((prev) =>
+        prev.map((o) =>
+          o.id === currentOrderId
+            ? { ...o, items: [], customer: "Khách lẻ" }
+            : o,
+        ),
+      );
       await fetchProducts();
 
       message.success({
@@ -562,28 +654,41 @@ const res = await api.get("/products", { params });
           status === "CONFIRM"
             ? "Đã tạo & xác nhận đơn thành công!"
             : status === "DEBT"
-            ? "Đã tạo đơn ghi nợ thành công!"
-            : "Đã tạo đơn PENDING thành công!",
+              ? "Đã tạo đơn ghi nợ thành công!"
+              : "Đã tạo đơn PENDING thành công!",
         key,
         duration: 2,
       });
 
       return { _id: id };
     } catch (err: any) {
-      console.error("completeOrderWithStatus error:", err?.response?.data || err?.message || err);
+      console.error(
+        "completeOrderWithStatus error:",
+        err?.response?.data || err?.message || err,
+      );
 
       const beMsg = err?.response?.data?.message;
       const msg =
         beMsg ||
-        (err?.message === "POS_BRANCH_REQUIRED" ? "POS bắt buộc chọn 1 chi nhánh (không được ALL)." : "") ||
+        (err?.message === "POS_BRANCH_REQUIRED"
+          ? "POS bắt buộc chọn 1 chi nhánh (không được ALL)."
+          : "") ||
         (err?.message === "EMPTY_CART" ? "Giỏ hàng đang trống." : "") ||
-        (err?.message === "SHIP_REQUIRES_PHONE" ? "Giao hàng: bắt buộc nhập SĐT." : "") ||
-        (err?.message === "SHIP_REQUIRES_ADDRESS" ? "Giao hàng: bắt buộc nhập địa chỉ." : "") ||
-        (err?.message === "REDEEM_REQUIRES_PHONE" ? "Sử dụng điểm: cần có SĐT khách hàng." : "") ||
+        (err?.message === "SHIP_REQUIRES_PHONE"
+          ? "Giao hàng: bắt buộc nhập SĐT."
+          : "") ||
+        (err?.message === "SHIP_REQUIRES_ADDRESS"
+          ? "Giao hàng: bắt buộc nhập địa chỉ."
+          : "") ||
+        (err?.message === "REDEEM_REQUIRES_PHONE"
+          ? "Sử dụng điểm: cần có SĐT khách hàng."
+          : "") ||
         (err?.message === "CONFIRM_REQUIRE_FULL_PAYMENT"
           ? "CONFIRM: Tổng tiền thanh toán phải đúng bằng tổng đơn (sau khi trừ điểm/giảm giá/phụ phí)."
           : "") ||
-        (err?.message === "DEBT_REQUIRES_PAYMENT" ? "DEBT: Phải nhập ít nhất 1 khoản thanh toán." : "") ||
+        (err?.message === "DEBT_REQUIRES_PAYMENT"
+          ? "DEBT: Phải nhập ít nhất 1 khoản thanh toán."
+          : "") ||
         (err?.message === "DEBT_REQUIRE_PARTIAL_PAYMENT"
           ? "DEBT: Phải thu một phần (0 < đã trả < tổng đơn sau trừ điểm)."
           : "") ||
@@ -596,7 +701,16 @@ const res = await api.get("/products", { params });
 
   return (
     <Routes>
-      <Route path="/login" element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />} />
+      <Route
+        path="/login"
+        element={
+          isLoggedIn ? (
+            <Navigate to="/" replace />
+          ) : (
+            <LoginPage onLoginSuccess={handleLoginSuccess} />
+          )
+        }
+      />
       <Route path="/shop" element={<ShopOnlinePage />} />
       <Route path="/product/:id" element={<ProductDetailPage />} />
       <Route
@@ -648,7 +762,10 @@ const res = await api.get("/products", { params });
         <Route path="inventory" element={<InventorySection />} />
         <Route path="warehouse" element={<WarehouseSection />} />
         <Route path="customers" element={<CustomersSection />} />
-        <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
+        <Route
+          path="shop-settings"
+          element={<ShopSettings branchId={posBranchId} />}
+        />
         <Route path="shop" element={<ShopOnlinePage />} />
       </Route>
 
