@@ -1,5 +1,6 @@
+// src/pages/shop/ProductDetailPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams , useSearchParams } from "react-router-dom";
 import {
   Breadcrumb,
   Button,
@@ -26,6 +27,7 @@ import {
   ShieldCheck,
   Truck,
   Trash2,
+  Flame,
 } from "lucide-react";
 
 import ProductCard from "../components/shop/ProductCard";
@@ -49,6 +51,23 @@ import {
 type ApiImage = { url: string; isPrimary?: boolean; order?: number };
 type BreadcrumbItem = { name: string; url?: string };
 
+type FlashSaleInfo = {
+  flashSaleId: string;
+  flashSaleName: string;
+  flashSaleCode: string;
+  startDate: string;
+  endDate: string;
+  originalPrice: number;
+  flashPrice: number;
+  discountPercent: number;
+  discountAmount: number;
+  badge: string;
+  limitedQuantity: number | null;
+  soldQuantity: number;
+  remainingQuantity: number | null;
+  maxPerCustomer: number | null;
+};
+
 type ApiVariant = {
   _id: string;
   sku?: string;
@@ -61,7 +80,7 @@ type ApiVariant = {
   thumbnail?: string;
   images?: ApiImage[];
   isFlashSale?: boolean;
-  flashSale?: any;
+  flashSale?: FlashSaleInfo | null;
   isDefault?: boolean;
 };
 
@@ -131,6 +150,9 @@ type ApiCategoryProductsRes = {
 // =======================
 // Helpers
 // =======================
+
+
+
 function money(n: number) {
   return Number(n || 0).toLocaleString("vi-VN") + "đ";
 }
@@ -176,7 +198,6 @@ function buildAvailableMap(variants: ApiVariant[] = []) {
   return available;
 }
 
-// ✅ attrs text for cart display
 function attrsTextFromSelection(selection: Record<string, string>) {
   const parts = Object.entries(selection)
     .filter(([_, v]) => String(v || "").trim().length > 0)
@@ -236,7 +257,9 @@ function Pill({ icon, text }: { icon: React.ReactNode; text: string }) {
 
 export default function ProductDetailPage() {
   const nav = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
+  const [searchParams] = useSearchParams(); // ✅ Add this
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<ApiProductDetail | null>(null);
@@ -245,17 +268,27 @@ export default function ProductDetailPage() {
   const [activeImg, setActiveImg] = useState<string>("");
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // ✅ related products
   const [relatedLoading, setRelatedLoading] = useState(false);
   const [related, setRelated] = useState<ApiCategoryItem[]>([]);
 
-  // ✅ buy now
   const [buyNowOpen, setBuyNowOpen] = useState(false);
 
   // ✅ CART DRAWER
   const [cartOpen, setCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState(() => getCart());
   const cartTotal = useMemo(() => getCartTotal(), [cartItems]);
+
+   const initDefaultSelection = (payload: ApiProductDetail) => {
+    const init: Record<string, string> = {};
+    if (payload.defaultVariant?.attributesObj) {
+      Object.assign(init, payload.defaultVariant.attributesObj);
+    } else {
+      (payload.options || []).forEach((o) => {
+        if (o?.key && o?.values?.length) init[o.key] = o.values[0];
+      });
+    }
+    setSelection(init);
+  };
 
   useEffect(() => {
     setCartItems(getCart());
@@ -265,7 +298,7 @@ export default function ProductDetailPage() {
     };
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     if (!id) return;
 
     const ctrl = new AbortController();
@@ -284,16 +317,24 @@ export default function ProductDetailPage() {
 
         setData(payload);
 
-        // init selection
-        const init: Record<string, string> = {};
-        if (payload.defaultVariant?.attributesObj) {
-          Object.assign(init, payload.defaultVariant.attributesObj);
+        // ✅ Check if variantId is in URL query params
+        const variantIdFromUrl = searchParams.get('variantId');
+        
+        if (variantIdFromUrl) {
+          // Find the variant from URL
+          const targetVariant = payload.variants?.find(v => v._id === variantIdFromUrl);
+          
+          if (targetVariant?.attributesObj) {
+            // Set selection from that variant
+            setSelection(targetVariant.attributesObj);
+          } else {
+            // Fallback to default behavior
+            initDefaultSelection(payload);
+          }
         } else {
-          (payload.options || []).forEach((o) => {
-            if (o?.key && o?.values?.length) init[o.key] = o.values[0];
-          });
+          // Normal behavior - use default variant
+          initDefaultSelection(payload);
         }
-        setSelection(init);
       } catch (e: any) {
         if (e?.name !== "CanceledError") message.error("Không tải được chi tiết sản phẩm.");
       } finally {
@@ -302,7 +343,7 @@ export default function ProductDetailPage() {
     })();
 
     return () => ctrl.abort();
-  }, [id]);
+  }, [id, searchParams]); // ✅ Add searchParams dependency
 
   const product = data?.product;
   const options = data?.options || [];
@@ -327,8 +368,7 @@ export default function ProductDetailPage() {
     if (!activeImg || !images.includes(activeImg)) {
       if (images.length > 0) setActiveImg(images[0]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [images]);
+  }, [images, activeImg]);
 
   const displayPrice = useMemo(() => {
     const vPrice = Number(chosenVariant?.displayPrice ?? chosenVariant?.price ?? 0);
@@ -360,10 +400,15 @@ export default function ProductDetailPage() {
     });
   };
 
-  // ✅ REAL add to cart (local)
+  // ✅ Flash Sale Info
+  const flashSaleInfo = useMemo(() => {
+    return chosenVariant?.flashSale || null;
+  }, [chosenVariant]);
+
+  const isFlashSale = !!flashSaleInfo;
+
   const addToCart = () => {
     if (options.length && !chosenVariant?._id) return message.warning("Vui lòng chọn đầy đủ thuộc tính.");
-
     if (!product?._id) return;
 
     const cartId = chosenVariant?._id || product._id;
@@ -383,7 +428,6 @@ export default function ProductDetailPage() {
     });
 
     message.success("Đã thêm vào giỏ hàng");
-    // setCartOpen(true);
   };
 
   const buyNow = () => {
@@ -392,20 +436,27 @@ export default function ProductDetailPage() {
   };
 
   const confirmBuyNow = () => {
-    setBuyNowOpen(false);
-    nav("/checkout", {
-      state: {
-        productId: product?._id,
-        variantId: chosenVariant?._id,
-        quantity: 1,
-        selection,
-      },
-    });
+    if (options.length && !chosenVariant?._id) return message.warning("Vui lòng chọn đầy đủ thuộc tính.");
+
+    const buyNowItem = {
+      id: chosenVariant?._id || product?._id,
+      productId: product?._id,
+      variantId: chosenVariant?._id,
+      sku: chosenVariant?.sku || product?.sku || "",
+      name: product?.name || "",
+      price: displayPrice,
+      qty: 1,
+      image: images?.[0] || product?.thumbnail || "",
+      attrsText: Object.entries(selection || {})
+        .filter(([_, v]) => String(v || "").trim())
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" • "),
+    };
+
+    nav("/checkout", { state: { mode: "buyNow", buyNowItem } });
   };
 
-  // =======================
-  // ✅ Fetch related products by category endpoint
-  // =======================
+  // Fetch related products
   useEffect(() => {
     if (!product?._id) return;
 
@@ -444,9 +495,6 @@ export default function ProductDetailPage() {
     return () => ctrl.abort();
   }, [product?._id, product?.categoryId, breadcrumb]);
 
-  // =======================
-  // States
-  // =======================
   if (loading) {
     return (
       <div className="min-h-screen w-full bg-gradient-to-b from-pink-50/60 to-white px-5 md:px-8 lg:px-10 py-10 flex justify-center">
@@ -458,7 +506,7 @@ export default function ProductDetailPage() {
   if (!data || !product) {
     return (
       <div className="min-h-screen w-full bg-gradient-to-b from-pink-50/60 to-white px-5 md:px-8 lg:px-10 py-10">
-        <Button onClick={() => nav(-1)} className="rounded-2xl border-pink-200 text-pink-700">
+        <Button onClick={() => nav("/shop")} className="rounded-2xl border-pink-200 text-pink-700">
           <ArrowLeft size={16} className="mr-1" /> Quay lại
         </Button>
         <div className="mt-6">
@@ -471,19 +519,13 @@ export default function ProductDetailPage() {
   const shortDesc = safeText(product.shortDescription) || safeText(product.description);
   const hasHtml = safeText(product.descriptionHtml).length > 0;
 
-  // =======================
-  // UI
-  // =======================
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-pink-50/60 to-white">
       <ShopHeader
         {...({
-          onSearch: (v: string) => {
-            // setQ(v);
-            // setPage(1);
-          },
+          onSearch: (v: string) => {},
           onOpenVoucher: () => window.scrollTo({ top: 450, behavior: "smooth" }),
-          onOpenCart: () => setCartOpen(true), // ✅ OPEN CART
+          onOpenCart: () => setCartOpen(true),
         } as any)}
       />
 
@@ -508,13 +550,24 @@ export default function ProductDetailPage() {
                   src={activeImg}
                   alt={product.name}
                   className="w-full h-full object-cover"
-                  onError={(e) => ((e.target as HTMLImageElement).src = "https://via.placeholder.com/900x900.png?text=Image+Error")}
+                  onError={(e) =>
+                    ((e.target as HTMLImageElement).src = "https://via.placeholder.com/900x900.png?text=Image+Error")
+                  }
                 />
 
                 <div className="absolute top-3 left-3 flex flex-wrap gap-2">
                   {product.categoryName ? (
                     <Tag className="!m-0 rounded-full border-0 bg-pink-600 text-white font-bold">{product.categoryName}</Tag>
                   ) : null}
+                  
+                  {/* ✅ Flash Sale Badge */}
+                  {isFlashSale && flashSaleInfo && (
+                    <Tag className="!m-0 rounded-full border-0 bg-red-500 text-white font-bold animate-pulse">
+                      <Flame size={12} className="inline mr-1" />
+                      {flashSaleInfo.badge || "FLASH SALE"}
+                    </Tag>
+                  )}
+
                   {product.hasVariants ? (
                     <Tag className="!m-0 rounded-full border-0 bg-gray-900/70 text-white font-bold">
                       {product.totalVariants || variants.length} biến thể
@@ -577,11 +630,54 @@ export default function ProductDetailPage() {
                 </div>
               ) : null}
 
+              {/* ✅ Flash Sale Info Banner */}
+              {isFlashSale && flashSaleInfo && (
+                <div className="mt-4 rounded-2xl border-2 border-red-500 bg-gradient-to-r from-red-50 to-pink-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="h-10 w-10 rounded-full bg-red-500 flex items-center justify-center">
+                        <Flame size={20} className="text-white" />
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-red-700">FLASH SALE</div>
+                        <div className="text-xs text-red-600">
+                          Kết thúc: {new Date(flashSaleInfo.endDate).toLocaleString("vi-VN")}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-extrabold text-red-600">-{flashSaleInfo.discountPercent}%</div>
+                      {flashSaleInfo.remainingQuantity !== null && (
+                        <div className="text-xs text-gray-600">
+                          Còn: <span className="font-bold">{flashSaleInfo.remainingQuantity}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="mt-4 rounded-2xl border border-pink-100 bg-gradient-to-r from-pink-50 to-white p-4">
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    <div className="text-pink-600 text-3xl font-extrabold">{money(displayPrice)}</div>
-                    {priceRangeText ? <div className="text-xs text-gray-500 mt-1">Khoảng giá: {priceRangeText}</div> : null}
+                    {/* ✅ Show both flash price and original if flash sale */}
+                    {isFlashSale && flashSaleInfo ? (
+                      <div>
+                        <div className="text-pink-600 text-3xl font-extrabold">{money(displayPrice)}</div>
+                        <div className="text-lg text-gray-400 line-through mt-1">
+                          {money(flashSaleInfo.originalPrice)}
+                        </div>
+                        <div className="text-xs text-green-700 font-bold mt-1">
+                          Tiết kiệm: {money(flashSaleInfo.discountAmount)}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="text-pink-600 text-3xl font-extrabold">{money(displayPrice)}</div>
+                        {priceRangeText ? <div className="text-xs text-gray-500 mt-1">Khoảng giá: {priceRangeText}</div> : null}
+                      </div>
+                    )}
+                    
                     {!isSelectionComplete ? (
                       <div className="mt-2 text-xs font-semibold text-amber-700">Vui lòng chọn đủ thuộc tính để mua.</div>
                     ) : null}
@@ -831,7 +927,9 @@ export default function ProductDetailPage() {
                   src={activeImg}
                   alt="preview"
                   className="w-full h-[520px] object-cover"
-                  onError={(e) => ((e.target as HTMLImageElement).src = "https://via.placeholder.com/900x900.png?text=Image+Error")}
+                  onError={(e) =>
+                    ((e.target as HTMLImageElement).src = "https://via.placeholder.com/900x900.png?text=Image+Error")
+                  }
                 />
               </div>
             </div>
@@ -901,24 +999,18 @@ export default function ProductDetailPage() {
           <div className="flex flex-col h-full">
             <div className="flex-1 space-y-3 overflow-auto pr-1">
               {cartItems.map((it) => (
-                <div
-                  key={it.id}
-                  className="rounded-2xl border border-pink-100 bg-white p-3 flex gap-3"
-                >
+                <div key={it.id} className="rounded-2xl border border-pink-100 bg-white p-3 flex gap-3">
                   <img
                     src={it.image || "https://via.placeholder.com/120x120.png?text=No+Image"}
                     alt={it.name}
                     className="w-16 h-16 rounded-xl object-cover border border-pink-100"
                     onError={(e) =>
-                      ((e.currentTarget as HTMLImageElement).src =
-                        "https://via.placeholder.com/120x120.png?text=No+Image")
+                      ((e.currentTarget as HTMLImageElement).src = "https://via.placeholder.com/120x120.png?text=No+Image")
                     }
                   />
 
                   <div className="flex-1 min-w-0">
-                    <div className="font-extrabold text-gray-900 text-sm line-clamp-2">
-                      {it.name}
-                    </div>
+                    <div className="font-extrabold text-gray-900 text-sm line-clamp-2">{it.name}</div>
 
                     <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">
                       {it.sku ? `SKU: ${it.sku}` : ""}
@@ -926,9 +1018,7 @@ export default function ProductDetailPage() {
                     </div>
 
                     <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="text-pink-600 font-extrabold">
-                        {money(it.price)}
-                      </div>
+                      <div className="text-pink-600 font-extrabold">{money(it.price)}</div>
 
                       <div className="flex items-center gap-2">
                         <InputNumber

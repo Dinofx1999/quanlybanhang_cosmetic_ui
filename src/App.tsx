@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { message } from "antd";
 
@@ -16,13 +16,15 @@ import ProtectedRoute from "./components/POS_ONLINE/Auth/ProtectedRoute";
 import ShopSettings from "./components/POS_ONLINE/ShopSettings/ShopSettings";
 import FlashSalesAdminSection from "./components/POS_ONLINE/FlashSale/FlashSaleManager";
 import { BRANCH_KEY, getPosBranchId } from "./services/branchContext";
-
 import { isAuthenticated, getCurrentUser } from "./services/authService";
+import api from "./services/api";
 
+// Shop Online
 import ShopOnlinePage from "./components/ShopOnline/pages/ShopHome";
 import ProductDetailPage from "./components/ShopOnline/pages/ProductDetailPage";
 import ProductCategory from "./components/ShopOnline/pages/ProductCategory";
 import ProductFlashSale from "./components/ShopOnline/pages/ProductFlashSale";
+import CheckoutPage from "./components/ShopOnline/components/shop/CheckoutPage";
 
 // ===============================
 // Types
@@ -108,6 +110,9 @@ const moneyInt = (n: any) => {
   if (!Number.isFinite(x)) return 0;
   return Math.round(x);
 };
+
+// ✅ Mongo ObjectId check
+const isMongoId = (s: any) => typeof s === "string" && /^[a-f\d]{24}$/i.test(String(s).trim());
 
 // ===============================
 // App Inner
@@ -260,6 +265,10 @@ const AppInner: React.FC = () => {
     // legacy
   };
 
+  /**
+   * ✅ FIX: MUST call BE to get Mongo ObjectId.
+   * IMPORTANT: change "/orders" to your real create order endpoint.
+   */
   const completeOrderWithStatus = async (
     status: "PENDING" | "CONFIRM" | "DEBT",
     payload: {
@@ -316,17 +325,13 @@ const AppInner: React.FC = () => {
       if (pointsRedeemed > 0) {
         const phone = String(payload.customer?.phone || "").trim();
         if (!phone) throw new Error("REDEEM_REQUIRES_PHONE");
-
-        // Server validation would be called here in real implementation
         pointsRedeemAmount = Math.max(0, Number(payload.pointsRedeemAmount || 0));
       }
     }
 
     const totalAfterRedeem = Math.max(0, baseAmount - pointsRedeemAmount);
 
-    if (status === "PENDING") {
-      payments = [];
-    }
+    if (status === "PENDING") payments = [];
 
     if (status === "CONFIRM") {
       if (totalAfterRedeem <= 0) throw new Error("TOTAL_INVALID");
@@ -368,7 +373,6 @@ const AppInner: React.FC = () => {
       pricingNote: payload.pricingNote || "",
       items,
       payments,
-
       ...(status === "CONFIRM" && pointsRedeemed > 0 ? { pointsRedeemed } : {}),
       ...(status === "CONFIRM" && pointsRedeemAmount > 0 ? { pointsRedeemAmount } : {}),
     };
@@ -377,20 +381,18 @@ const AppInner: React.FC = () => {
     message.loading({ content: "Đang tạo đơn...", key });
 
     try {
-      // Simulated API call - replace with real API
-      const mockResponse = {
-        data: {
-          order: {
-            _id: `ORDER_${Date.now()}`,
-          },
-        },
-      };
+      // ✅ REAL API (change endpoint to your BE)
+      const res = await api.post("/orders", body);
 
-      const created = mockResponse.data?.order;
+      const created = res.data?.order || res.data?.data?.order || res.data?.item || res.data || {};
       const id = String(created?._id || "");
-      if (!id) throw new Error("ORDER_CREATE_FAILED");
 
-      setActiveOrders((prev) => prev.map((o) => (o.id === currentOrderId ? { ...o, items: [], customer: "Khách lẻ" } : o)));
+      // ✅ MUST be Mongo ObjectId
+      if (!isMongoId(id)) throw new Error("ORDER_ID_INVALID");
+
+      setActiveOrders((prev) =>
+        prev.map((o) => (o.id === currentOrderId ? { ...o, items: [], customer: "Khách lẻ" } : o))
+      );
 
       message.success({
         content:
@@ -415,12 +417,16 @@ const AppInner: React.FC = () => {
         (err?.message === "SHIP_REQUIRES_PHONE" ? "Giao hàng: bắt buộc nhập SĐT." : "") ||
         (err?.message === "SHIP_REQUIRES_ADDRESS" ? "Giao hàng: bắt buộc nhập địa chỉ." : "") ||
         (err?.message === "REDEEM_REQUIRES_PHONE" ? "Sử dụng điểm: cần có SĐT khách hàng." : "") ||
+        (err?.message === "TOTAL_INVALID" ? "Tổng thanh toán không hợp lệ." : "") ||
         (err?.message === "CONFIRM_REQUIRE_FULL_PAYMENT"
           ? "CONFIRM: Tổng tiền thanh toán phải đúng bằng tổng đơn (sau khi trừ điểm/giảm giá/phụ phí)."
           : "") ||
         (err?.message === "DEBT_REQUIRES_PAYMENT" ? "DEBT: Phải nhập ít nhất 1 khoản thanh toán." : "") ||
         (err?.message === "DEBT_REQUIRE_PARTIAL_PAYMENT"
           ? "DEBT: Phải thu một phần (0 < đã trả < tổng đơn sau trừ điểm)."
+          : "") ||
+        (err?.message === "ORDER_ID_INVALID"
+          ? "Server không trả về _id dạng ObjectId. Hãy kiểm tra response API tạo đơn."
           : "") ||
         "Không tạo đơn / thanh toán được.";
 
@@ -431,11 +437,18 @@ const AppInner: React.FC = () => {
 
   return (
     <Routes>
-      <Route path="/login" element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />} />
+      <Route
+        path="/login"
+        element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />}
+      />
+
+      {/* SHOP ONLINE */}
       <Route path="/shop" element={<ShopOnlinePage />} />
       <Route path="/product/:id" element={<ProductDetailPage />} />
       <Route path="/category/:categoryId" element={<ProductCategory />} />
       <Route path="/flash-sale/:flashSaleId" element={<ProductFlashSale />} />
+      <Route path="/checkout" element={<CheckoutPage />} />
+
       <Route
         path="/"
         element={
@@ -482,12 +495,13 @@ const AppInner: React.FC = () => {
         <Route path="inventory" element={<InventorySection />} />
         <Route path="warehouse" element={<WarehouseSection />} />
         <Route path="customers" element={<CustomersSection />} />
+        {/* <Route path="revenue" element={<RevenueSection />} /> */}
         <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
         <Route path="flash-sales-admin" element={<FlashSalesAdminSection />} />
         <Route path="shop" element={<ShopOnlinePage />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/shop" replace />} />
     </Routes>
   );
 };

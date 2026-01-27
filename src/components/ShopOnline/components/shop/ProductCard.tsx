@@ -1,5 +1,5 @@
 import React from "react";
-import { Button, Rate, message } from "antd";
+import { Button, Rate, message , Space } from "antd";
 import { ShoppingCart } from "lucide-react";
 import type { Product } from "../../data/shopMock";
 import { useNavigate } from "react-router-dom";
@@ -175,6 +175,7 @@ export default function ProductCard({
 
   const open = () => {
     onOpen?.(p.id);
+    console.log('Product clicked:', p.id);
     navigate(`/product/${p.id}`);
   };
 
@@ -235,17 +236,27 @@ export default function ProductCard({
           <span>Đã bán {p.soldCount ? money(p.soldCount) : "—"}</span>
           <span>{p.location || "VN"}</span>
         </div>
-
-        {!hideCta && (
+        <Space>
+         {!hideCta && (
           <Button
             size="small"
             onClick={add}
             className="mt-2 w-full h-8 rounded-xl !bg-pink-500 hover:!bg-pink-600 !border-pink-500 text-[11px]"
           >
             <ShoppingCart size={14} className="mr-1" />
-            Thêm vào giỏ
           </Button>
         )}
+        {!hideCta && (
+          <Button
+            size="small"
+            onClick={() => navigate(`/product/${p.id}`)}
+            className="mt-2 w-full h-8 rounded-xl !bg-pink-500 hover:!bg-pink-600 !border-pink-500 text-[11px]"
+          >
+            <ShoppingCart size={14} className="mr-1" />
+            Mua Ngay
+          </Button>
+        )}
+        </Space>
       </div>
     </div>
   );

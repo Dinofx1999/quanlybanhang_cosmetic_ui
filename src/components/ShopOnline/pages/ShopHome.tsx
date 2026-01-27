@@ -261,7 +261,7 @@ export default function ShopHome() {
             <FlashSale 
               endsAt={flashSaleEndsAt} 
               items={flashSaleProducts}
-              name={flashSaleName}
+              // name={flashSaleName}
               onViewAll={() => {
                 nav(`/flash-sale/${flashSaleId}`);
                 // TODO: Navigate to flash sale page

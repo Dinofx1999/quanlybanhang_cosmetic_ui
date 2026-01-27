@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Drawer, Button, InputNumber, Empty, Divider, message } from "antd";
 import { Minus, Plus, Trash2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import {
   getCart,
   subscribeCart,
@@ -22,6 +23,7 @@ type Props = {
 };
 
 export default function CartDrawer({ open, onClose, title = "Giỏ hàng" }: Props) {
+  const nav = useNavigate();
   const [items, setItems] = useState(() => getCart());
 
   useEffect(() => {
@@ -166,6 +168,7 @@ export default function CartDrawer({ open, onClose, title = "Giỏ hàng" }: Pro
                 type="primary"
                 className="rounded-2xl !bg-pink-600 !border-pink-600 hover:!bg-pink-700"
                 onClick={() => {
+                    nav("/checkout");
                   // tuỳ bạn: mở trang checkout
                   message.info("Đi tới thanh toán (bạn nối route/logic ở đây)");
                 }}

@@ -3,6 +3,7 @@ import { Badge, Input, Button } from "antd";
 import { Search, ShoppingBag, TicketPercent, Flame } from "lucide-react";
 import { getCartCount, subscribeCart } from "../../../../utils/cart";
 import CartDrawer from "./CartDrawer"; // ✅ chỉnh path nếu khác
+import { useNavigate } from "react-router-dom";
 
 type Props = {
   onSearch?: (q: string) => void;
@@ -11,6 +12,7 @@ type Props = {
 };
 
 export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props) {
+  const nav = useNavigate();
   const [cartCount, setCartCount] = useState<number>(() => getCartCount());
   const [openCart, setOpenCart] = useState(false);
 
@@ -36,7 +38,9 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
               />
             </div>
             <div className="leading-tight hidden sm:block">
-              <div className="font-extrabold text-gray-900">
+              <div className="font-extrabold text-gray-900 cursor-pointer"
+               onClick={() => nav('/shop')}
+              >
                 Bảo Ân <span className="text-pink-600">Cosmetics</span>
               </div>
               <div className="text-xs text-gray-500">Deal sốc mỗi ngày</div>

@@ -1,12 +1,13 @@
 // src/components/shop/FlashSale.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Progress, Tag } from "antd";
+import { Button, Progress, Tag, message } from "antd";
 import { Flame, Timer, Zap, ShoppingCart, CreditCard } from "lucide-react";
 import { addItem } from "../../../../utils/cart";
-import { message } from "antd"; // ✅ ADD
+import { useNavigate } from "react-router-dom";
 
 type FlashSaleProduct = {
-  id: string;
+  id: string; // ✅ variantId
+  productId?: string; // ✅ productId
   name: string;
   image: string;
   price: number;
@@ -22,7 +23,7 @@ type FlashSaleProduct = {
 };
 
 type Props = {
-  endsAt: number;
+  endsAt: number; // ms
   items: FlashSaleProduct[];
   name?: string;
   onViewAll?: () => void;
@@ -49,6 +50,7 @@ export default function FlashSale({
   onBuyNow,
   onItemClick,
 }: Props) {
+  const navigate = useNavigate();
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -69,15 +71,29 @@ export default function FlashSale({
     if (onAddToCart) return onAddToCart(p);
 
     addItem({
-      id: p.id, // ✅ lưu id
-      name: p.name, // ✅ hiển thị tên
+      id: p.id, // ✅ variantId
+      name: p.name,
       price: p.price,
       qty: 1,
       image: p.image,
+      productId: p.productId,
+      variantId: p.id,
     });
 
     message.success(`Đã thêm vào giỏ: ${p.name}`);
   };
+
+  const openDetail = (p: FlashSaleProduct) => {
+  onItemClick?.(p);
+
+  if (!p.productId) {
+    message.error("Thiếu productId nên không mở được chi tiết.");
+    return;
+  }
+
+  // ✅ Navigate với variantId trong query string
+  navigate(`/product/${p.productId}?variantId=${p.id}`);
+};
 
   return (
     <div className="w-full">
@@ -145,10 +161,18 @@ export default function FlashSale({
                   <div
                     key={p.id}
                     className="rounded-[16px] border border-pink-100 bg-white overflow-hidden hover:shadow-md transition cursor-pointer"
-                    onClick={() => onItemClick?.(p)}
+                    onClick={() => openDetail(p)}
                   >
                     <div className="relative aspect-square bg-white">
-                      <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                      <img
+                        src={p.image}
+                        alt={p.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src =
+                            "https://via.placeholder.com/600x600.png?text=No+Image";
+                        }}
+                      />
 
                       <div className="absolute top-1.5 left-1.5 flex flex-col gap-1">
                         <Tag className="!m-0 !px-1.5 !py-0 rounded-lg border-0 bg-red-500 text-white text-[10px] leading-tight flex items-center">
@@ -191,7 +215,7 @@ export default function FlashSale({
 
                       <div className="flex gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
                         <Button
-                          onClick={() => handleAdd(p)} // ✅ ADD TO CART thật
+                          onClick={() => handleAdd(p)}
                           className="flex-1 h-8 px-0 rounded-xl border-0 bg-pink-600 text-white text-[11px] font-semibold hover:!bg-pink-700"
                           icon={<ShoppingCart size={14} />}
                         >
@@ -199,7 +223,24 @@ export default function FlashSale({
                         </Button>
 
                         <Button
-                          onClick={() => onBuyNow?.(p)}
+                          onClick={() => {
+                            if (onBuyNow) return onBuyNow(p);
+
+                            navigate("/checkout", {
+                              state: {
+                                mode: "buyNow",
+                                buyNowItem: {
+                                  id: p.id, // variantId
+                                  productId: p.productId,
+                                  variantId: p.id,
+                                  name: p.name,
+                                  price: p.price,
+                                  qty: 1,
+                                  image: p.image,
+                                },
+                              },
+                            });
+                          }}
                           className="flex-1 h-8 px-0 rounded-xl border border-pink-200 bg-white text-pink-700 text-[11px] font-semibold hover:!border-pink-400"
                           icon={<CreditCard size={14} />}
                         >
