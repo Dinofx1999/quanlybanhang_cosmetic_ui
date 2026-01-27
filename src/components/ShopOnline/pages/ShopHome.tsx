@@ -1,5 +1,5 @@
 // src/pages/ShopHome.tsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import ShopHeader from "../components/shop/ShopHeader";
 import CategoryBar from "../components/shop/CategoryBar";
 import VoucherBar from "../components/shop/VoucherBar";
@@ -11,13 +11,14 @@ import AdsBanner from "../components/shop/AdsBanner";
 import ProductQuickView from "../components/shop/ProductQuickView";
 
 //HELPER
-import {getLastId} from "../helpers/format"
-import {normalizeProductsFromApi} from "../helpers/func_helper"
+import { getLastId } from "../helpers/format";
+import { normalizeProductsFromApi } from "../helpers/func_helper";
+import { useNavigate } from "react-router-dom";
 
-import { flashSaleEndsAt } from "../data/shopMock";
 import api from "../../../services/api";
 
 export default function ShopHome() {
+   const nav = useNavigate();
   const flashRef = useRef<HTMLDivElement | null>(null);
 
   const [q, setQ] = useState("");
@@ -27,56 +28,141 @@ export default function ShopHome() {
   const [filterOpen, setFilterOpen] = useState(false);
 
   const [openDetail, setOpenDetail] = useState(false);
- const [detailId, setDetailId] = useState<string>("");
+  const [detailId, setDetailId] = useState<string>("");
 
-    const openProduct = (id: string) => {
-  setDetailId(id);
-  setOpenDetail(true);
-};
+  const openProduct = (id: string) => {
+    setDetailId(id);
+    setOpenDetail(true);
+  };
 
   // pagination
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
 
-   // load categories from API
-  const [categories, setCategories] = React.useState<any[]>([]);
-    const fetchCategories = React.useCallback(async () => {
-        try {
-        const res = await api.get("/public/categories/tree");
-        setCategories(res.data.tree || []);
-        console.log("Fetched categories:", res.data.tree);
-        } catch {
-        setCategories([]);
-        }
-    }, []);
-    React.useEffect(() => {
-        fetchCategories();
-    }, []);
+  // ✅ Load categories from API
+  const [categories, setCategories] = useState<any[]>([]);
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await api.get("/public/categories/tree");
+      setCategories(res.data.tree || []);
+      console.log("Fetched categories:", res.data.tree);
+    } catch {
+      setCategories([]);
+    }
+  }, []);
 
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
 
-    //Load products from API
-    const [products, setProducts] = React.useState<any[]>([]);
+  // ✅ Load products from API
+  const [products, setProducts] = useState<any[]>([]);
 
-    const fetchProducts = React.useCallback(async (id_cat: string) => {
-        try {
-            let url = `/public/categories/${id_cat}/products?includeSubcategories=true`;
-            if(id_cat===""){
-                url=`/public/products`;
-            }
-            const res = await api.get(url);
-            const uiItems = normalizeProductsFromApi(res.data.items || []);
-            setProducts(uiItems);
-        } catch {
-            setProducts([]);
-        }
-    }, []);
-    React.useEffect(() => {
-        const id_cat = getLastId(catId);
-        fetchProducts(id_cat);
-    }, [catId]);
+  const fetchProducts = useCallback(async (id_cat: string) => {
+    try {
+      let url = `/public/categories/${id_cat}/products?includeSubcategories=true`;
+      if (id_cat === "") {
+        url = `/public/products`;
+      }
+      const res = await api.get(url);
+      const uiItems = normalizeProductsFromApi(res.data.items || []);
+      setProducts(uiItems);
+    } catch {
+      setProducts([]);
+    }
+  }, []);
 
+  useEffect(() => {
+    const id_cat = getLastId(catId);
+    fetchProducts(id_cat);
+  }, [catId, fetchProducts]);
 
-      const maxPrice = useMemo(() => Math.max(...products.map((p) => p.originalPrice || p.price)), []);
+  // ✅ Load Flash Sale Products
+  const [flashSaleProducts, setFlashSaleProducts] = useState<any[]>([]);
+  const [flashSaleEndsAt, setFlashSaleEndsAt] = useState<number | null>(null);
+  const [flashSaleId, setFlashSaleId] = useState<string>("");
+  const [flashSaleName, setFlashSaleName] = useState<string>("");
+
+  const fetchFlashSale = useCallback(async () => {
+    try {
+      // 1. Lấy flash sales đang active
+      const flashRes = await api.get("/flashsales/active");
+      const activeSales = flashRes.data.items || [];
+
+      if (activeSales.length === 0) {
+        setFlashSaleProducts([]);
+        setFlashSaleEndsAt(null);
+        return;
+      }
+
+      // Lấy flash sale đầu tiên (priority cao nhất)
+      const topFlashSale = activeSales[0];
+      setFlashSaleEndsAt(new Date(topFlashSale.endDate).getTime());
+      setFlashSaleId(topFlashSale._id);
+      setFlashSaleName(topFlashSale.name || "");
+      // 2. Lấy products trong flash sale
+      const productsRes = await api.get(`/public/flash-sales/${topFlashSale._id}/products`, {
+        params: { limit: 20 }
+      });
+
+      const items = productsRes.data.items || [];
+
+      // 3. Normalize to match UI format
+      const normalized = items.map((item: any) => ({
+        id: item._id,
+        productId: item.productId,
+        name: item.productName,
+        brand: item.productBrand || "",
+        image: item.thumbnail || "",
+        images: item.images || [],
+        
+        // Prices
+        originalPrice: item.originalPrice,
+        price: item.flashPrice,
+        
+        // Flash sale specific
+        flashSale: {
+          price: item.flashPrice,
+          discount: item.discountPercent,
+          endsAt: topFlashSale.endDate,
+          badge: item.badge || "HOT"
+        },
+        
+        // Calculate sold percentage
+        sold: item.limitedQuantity 
+          ? Math.round((item.soldQuantity / item.limitedQuantity) * 100)
+          : 0,
+        
+        soldCount: item.soldQuantity || 0,
+        rating: 0,
+        reviews: 0,
+        tags: ["Flash Sale"],
+        location: "VN"
+      }));
+
+      setFlashSaleProducts(normalized);
+      console.log("Fetched flash sale products:", normalized.length);
+    } catch (error) {
+      console.error("Error fetching flash sale:", error);
+      setFlashSaleProducts([]);
+      setFlashSaleEndsAt(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFlashSale();
+    
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchFlashSale, 5 * 60 * 1000);
+    
+    return () => clearInterval(interval);
+  }, [fetchFlashSale]);
+
+  const maxPrice = useMemo(
+    () => Math.max(...products.map((p) => p.originalPrice || p.price), 0),
+    [products]
+  );
+
   const [filters, setFilters] = useState<Filters>({
     priceMin: 0,
     priceMax: maxPrice,
@@ -86,7 +172,6 @@ export default function ShopHome() {
     mall: false,
   });
 
-    
   const resetAll = () => {
     setSort("relevance");
     setFilters({
@@ -141,7 +226,7 @@ export default function ShopHome() {
     }
 
     return list;
-  }, [q, catId, filters, sort, maxPrice]);
+  }, [q, catId, filters, sort, products]);
 
   const total = filteredSorted.length;
 
@@ -155,8 +240,6 @@ export default function ShopHome() {
     setPageSize(ps);
   };
 
-  const flashItems = products.filter((p) => p.flashSale);
-
   return (
     <div className="min-h-screen w-full bg-pink-50/40">
       <ShopHeader
@@ -169,14 +252,27 @@ export default function ShopHome() {
       />
 
       {/* FULL SCREEN WRAPPER */}
-        <div className="w-full px-5 md:px-8 lg:px-10 py-5 space-y-4">
+      <div className="w-full px-5 md:px-8 lg:px-10 py-5 space-y-4">
         <AdsBanner />
+        
+        {/* ✅ Flash Sale Section */}
         <div ref={flashRef}>
-        {flashSaleEndsAt && flashItems.length > 0 && (
-        <FlashSale endsAt={flashSaleEndsAt} items={flashItems} />
-        )}
+          {flashSaleEndsAt && flashSaleProducts.length > 0 && (
+            <FlashSale 
+              endsAt={flashSaleEndsAt} 
+              items={flashSaleProducts}
+              name={flashSaleName}
+              onViewAll={() => {
+                nav(`/flash-sale/${flashSaleId}`);
+                // TODO: Navigate to flash sale page
+                console.log("View all flash sale", flashSaleProducts );
+              }}
+            />
+          )}
         </div>
-         <VoucherBar onApply={() => {}} />
+
+        <VoucherBar onApply={() => {}} />
+        
         <div className="bg-white border border-pink-100 rounded-[22px] p-3 md:p-4 shadow-sm">
           <CategoryBar
             items={categories}
@@ -187,10 +283,6 @@ export default function ShopHome() {
             }}
           />
         </div>
-
-       
-
-        
 
         <FilterSortBar
           sort={sort}
@@ -226,11 +318,7 @@ export default function ShopHome() {
           onPageChange={onPageChange}
         />
 
-        <ProductQuickView
-            open={openDetail}
-            productId={detailId}
-            onClose={() => setOpenDetail(false)}
-            />
+        <ProductQuickView open={openDetail} productId={detailId} onClose={() => setOpenDetail(false)} />
       </div>
 
       <ShopFooter />

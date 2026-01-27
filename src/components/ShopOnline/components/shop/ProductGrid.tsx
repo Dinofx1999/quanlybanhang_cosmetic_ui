@@ -25,8 +25,8 @@ export default function ProductGrid({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
-            {items.map((p) => (
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-8 gap-2">
+            {items.map(p => (
               <ProductCard key={p.id} p={p} />
             ))}
           </div>
@@ -35,7 +35,7 @@ export default function ProductGrid({
             <Pagination
               current={page}
               pageSize={pageSize}
-              total={total}
+              total={total} 
               showSizeChanger
               pageSizeOptions={[12, 24, 36, 48]}
               onChange={onPageChange}

@@ -5,8 +5,8 @@ import { Copy, TicketPercent, CheckCircle2 } from "lucide-react";
 type Voucher = {
   code: string;
   qty: number;
-  discountText: string; // VD: "Giảm 10%", "Giảm 30K", "Freeship"
-  hint?: string; // VD: "Đơn từ 199K"
+  discountText: string;
+  hint?: string;
   type?: "PERCENT" | "AMOUNT" | "SHIP";
 };
 
@@ -18,9 +18,9 @@ export default function VoucherBar({ onApply }: Props) {
   const vouchers: Voucher[] = useMemo(
     () => [
       { code: "BA10", qty: 128, discountText: "Giảm 10%", hint: "Đơn từ 199K", type: "PERCENT" },
-      { code: "PINK20", qty: 56, discountText: "Giảm 20%", hint: "Đơn từ 399K", type: "PERCENT" },
-      { code: "FREESHIP", qty: 240, discountText: "Freeship", hint: "Đơn từ 299K", type: "SHIP" },
-      { code: "SAVE30K", qty: 42, discountText: "Giảm 30K", hint: "Đơn từ 259K", type: "AMOUNT" },
+      { code: "BA20", qty: 64, discountText: "Giảm 20%", hint: "Đơn từ 499K", type: "PERCENT" },
+      { code: "BA30K", qty: 256, discountText: "Giảm 30K", hint: "Đơn từ 149K", type: "AMOUNT" },
+      { code: "FREESHIP", qty: 512, discountText: "Freeship toàn quốc", hint: "Đơn từ 99K", type: "SHIP" },
     ],
     []
   );
@@ -94,19 +94,44 @@ export default function VoucherBar({ onApply }: Props) {
           </div>
         </div>
 
-        {/* Voucher list */}
+        {/* Voucher list – SCROLL NGANG */}
         <div className="p-4 md:p-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div
+            className="
+              flex gap-3 overflow-x-auto pb-2
+              scroll-smooth
+              snap-x snap-mandatory
+              [-ms-overflow-style:none]
+              [scrollbar-width:none]
+            "
+          >
+            {/* Ẩn scrollbar Chrome */}
+            <style>{`
+              div::-webkit-scrollbar {
+                display: none;
+              }
+            `}</style>
+
             {vouchers.map((v) => (
               <div
                 key={v.code}
-                className="rounded-[18px] border border-pink-100 bg-pink-50/40 overflow-hidden hover:shadow-md transition"
+                className="
+                  snap-start
+                  min-w-[260px] max-w-[260px]
+                  rounded-[18px]
+                  border border-pink-100
+                  bg-pink-50/40
+                  overflow-hidden
+                  hover:shadow-md transition
+                "
               >
                 <div className="p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-xs text-gray-500">Code</div>
-                      <div className="text-lg font-extrabold text-gray-900 tracking-wide">{v.code}</div>
+                      <div className="text-lg font-extrabold text-gray-900 tracking-wide">
+                        {v.code}
+                      </div>
                     </div>
                     {badgeByType(v.type)}
                   </div>
@@ -118,11 +143,17 @@ export default function VoucherBar({ onApply }: Props) {
                     </div>
                     <div className="rounded-xl bg-white border border-pink-100 p-2 col-span-2">
                       <div className="text-gray-500">Được giảm</div>
-                      <div className="font-extrabold text-pink-600">{v.discountText}</div>
+                      <div className="font-extrabold text-pink-600">
+                        {v.discountText}
+                      </div>
                     </div>
                   </div>
 
-                  {v.hint ? <div className="mt-2 text-xs text-gray-600">Điều kiện: {v.hint}</div> : null}
+                  {v.hint && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      Điều kiện: {v.hint}
+                    </div>
+                  )}
 
                   <div className="mt-3 flex gap-2">
                     <Button

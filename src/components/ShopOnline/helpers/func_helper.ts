@@ -1,6 +1,6 @@
 
 import { ApiProduct, UIProduct } from "../helpers/format";
-
+import type { ShopProduct } from "../../../types/shop";
 function pickImage(p: ApiProduct): string {
   // ưu tiên thumbnail → ảnh primary → ảnh đầu tiên → placeholder
   if (p.thumbnail) return p.thumbnail;
@@ -26,43 +26,36 @@ function calcOriginalPrice(price: number, basePrice?: number): number {
 }
 
 
-export function normalizeProductsFromApi(apiItems: ApiProduct[]): UIProduct[] {
-  const arr = Array.isArray(apiItems) ? apiItems : [];
+export const normalizeProductsFromApi = (items: any[]) => {
+  return items.map((item: any) => ({
+    id: item._id,
+    name: item.name,
+    brand: item.brand || "",
+    categoryName: item.categoryName || "",
+    categoryId: item.categoryId || "",
+    image: item.thumbnail || "",
+    images: item.images || [],
+    
+    // Price
+    originalPrice: item.price,
+    price: item.isFlashSale ? item.flashSalePrice : (item.minPrice || item.price),
+    
+    // Flash sale
+    flashSale: item.isFlashSale ? {
+      price: item.flashSalePrice,
+      discount: item.maxDiscount || 0,
+      endsAt: item.flashSaleEndDate,
+      badge: "FLASH SALE"
+    } : null,
+    
+    // Additional
+    sku: item.sku,
+    soldCount: 0,
+    rating: 0,
+    reviews: 0,
+    tags: item.isFlashSale ? ["Flash Sale"] : [],
+    location: "VN"
+  }));
+};
 
-  return arr
-    .filter((p) => p && p._id && p.name)
-    .map((p) => {
-      const price = Number(p.price ?? p.basePrice ?? 0);
 
-      // tags: bạn có thể tự quy ước theo stock/isActive/hasVariants...
-      const tags: string[] = [];
-      if (p.isActive) tags.push("Active");
-      if ((p.stock ?? 0) <= 0) tags.push("OutOfStock");
-
-      // Nếu bạn muốn tự gán Flash theo điều kiện nào đó:
-      // Ví dụ: stock lớn + đang active => flash
-      const flashSale = false; // hoặc tự set theo API/logic của bạn
-
-      return {
-        id: String(p._id),
-        name: String(p.name || ""),
-        brand: p.brand ? String(p.brand) : undefined,
-        categoryId: p.categoryId ? String(p.categoryId) : undefined,
-
-        price: price,
-        originalPrice: price > 0 ? calcOriginalPrice(price, p.basePrice) : undefined,
-
-        image: pickImage(p),
-
-        // các field này API chưa có -> để mặc định / hoặc bạn gán theo rule
-        sold: 100,
-        soldCount: 200,
-        rating: 5,
-        reviews: 30,
-        location: "HCM",
-
-        flashSale,
-        tags,
-      } as UIProduct;
-    });
-}

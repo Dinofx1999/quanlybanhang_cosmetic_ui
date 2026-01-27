@@ -1,23 +1,56 @@
+// src/components/shop/FlashSale.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Button, Progress, Tag } from "antd";
-import { Flame, Timer, Zap } from "lucide-react";
-import type { Product } from "../../data/shopMock";
+import { Flame, Timer, Zap, ShoppingCart, CreditCard } from "lucide-react";
+import { addItem } from "../../../../utils/cart";
+import { message } from "antd"; // ✅ ADD
+
+type FlashSaleProduct = {
+  id: string;
+  name: string;
+  image: string;
+  price: number;
+  originalPrice?: number;
+
+  flashSale?: {
+    badge?: string;
+    stock?: number;
+    sold?: number;
+  };
+
+  sold?: number;
+};
 
 type Props = {
   endsAt: number;
-  items: Product[];
+  items: FlashSaleProduct[];
+  name?: string;
   onViewAll?: () => void;
+
+  onAddToCart?: (p: FlashSaleProduct) => void;
+  onBuyNow?: (p: FlashSaleProduct) => void;
+  onItemClick?: (p: FlashSaleProduct) => void;
 };
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
+
 function money(n: number) {
   return Number(n || 0).toLocaleString("vi-VN");
 }
 
-export default function FlashSale({ endsAt, items, onViewAll }: Props) {
+export default function FlashSale({
+  endsAt,
+  items,
+  name,
+  onViewAll,
+  onAddToCart,
+  onBuyNow,
+  onItemClick,
+}: Props) {
   const [now, setNow] = useState(Date.now());
+
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -30,91 +63,155 @@ export default function FlashSale({ endsAt, items, onViewAll }: Props) {
 
   const top = useMemo(() => items.slice(0, 8), [items]);
 
+  if (remain === 0) return null;
+
+  const handleAdd = (p: FlashSaleProduct) => {
+    if (onAddToCart) return onAddToCart(p);
+
+    addItem({
+      id: p.id, // ✅ lưu id
+      name: p.name, // ✅ hiển thị tên
+      price: p.price,
+      qty: 1,
+      image: p.image,
+    });
+
+    message.success(`Đã thêm vào giỏ: ${p.name}`);
+  };
+
   return (
     <div className="w-full">
       <div className="w-full rounded-[22px] border border-pink-100 bg-white shadow-sm overflow-hidden">
-        {/* header */}
         <div className="px-4 md:px-5 py-3 bg-gradient-to-r from-red-500 via-pink-500 to-pink-400 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-2xl bg-white/15 flex items-center justify-center">
+          <div className="flex items-start gap-2 min-w-0">
+            <div className="h-9 w-9 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
               <Flame size={18} />
             </div>
-            <div>
-              <div className="font-extrabold leading-tight">Flash Sale</div>
-              <div className="text-xs opacity-90 flex items-center gap-2">
-                <Timer size={14} />
-                <span>
-                  Kết thúc trong: {pad(hh)}:{pad(mm)}:{pad(ss)}
+
+            <div className="min-w-0 flex-1">
+              <div className="font-extrabold leading-tight text-base sm:text-lg line-clamp-2">
+                {name?.trim() ? name : "Flash Sale"}
+              </div>
+
+              <div className="mt-1 text-xs opacity-90 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                <div className="flex items-center gap-1">
+                  <Timer size={14} />
+                  <span className="whitespace-nowrap">Kết thúc trong</span>
+                </div>
+
+                <span className="inline-flex w-fit items-center rounded-full bg-white/15 px-2 py-[2px] font-mono tracking-wide">
+                  {pad(hh)}:{pad(mm)}:{pad(ss)}
                 </span>
               </div>
             </div>
           </div>
 
-          <Button
-            onClick={onViewAll}
-            className="rounded-2xl border-white/50 bg-white/10 text-white hover:!text-white hover:!border-white"
-          >
-            Xem tất cả
-          </Button>
+          {onViewAll && (
+            <Button
+              onClick={onViewAll}
+              className="rounded-2xl border-white/50 bg-white/10 text-white hover:!text-white hover:!border-white"
+            >
+              Xem tất cả
+            </Button>
+          )}
         </div>
 
-        {/* content - full width grid */}
         <div className="p-4 md:p-5">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-3 md:gap-4">
-            {top.map((p) => {
-              const discount =
-                p.originalPrice && p.originalPrice > p.price
-                  ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100)
-                  : 0;
+          {top.length === 0 ? (
+            <div className="text-sm text-gray-500">Chưa có sản phẩm flash sale.</div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-3 md:gap-4">
+              {top.map((p) => {
+                const discount =
+                  p.originalPrice && p.originalPrice > p.price
+                    ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100)
+                    : 0;
 
-              const soldPercent = Math.min(100, Math.max(0, Number(p.sold ?? 0)));
-              return (
-                <div
-                  key={p.id}
-                  className="rounded-[18px] border border-pink-100 bg-pink-50/30 overflow-hidden hover:shadow-md transition"
-                >
-                  <div className="relative aspect-square bg-white overflow-hidden">
-                    <img src={p.image} alt={p.name} className="w-full h-full object-cover hover:scale-[1.04] transition" />
-                    <div className="absolute top-2 left-2 flex gap-1">
-                      <Tag className="!m-0 rounded-lg border-0 bg-red-500 text-white">
-                        <span className="inline-flex items-center gap-1">
-                          <Zap size={14} /> Flash
-                        </span>
-                      </Tag>
-                      {discount > 0 ? (
-                        <Tag className="!m-0 rounded-lg border-0 bg-yellow-300 text-gray-900 font-extrabold">
-                          -{discount}%
+                const stock = p.flashSale?.stock;
+                const soldQty = p.flashSale?.sold;
+
+                let soldPercent = 0;
+                let soldText = "";
+
+                if (typeof stock === "number" && typeof soldQty === "number" && stock > 0) {
+                  soldPercent = Math.min(100, Math.round((soldQty / stock) * 100));
+                  soldText = `${soldQty}/${stock}`;
+                } else {
+                  soldPercent = Math.min(100, Number(p.sold ?? 0));
+                  soldText = `${soldPercent}%`;
+                }
+
+                return (
+                  <div
+                    key={p.id}
+                    className="rounded-[16px] border border-pink-100 bg-white overflow-hidden hover:shadow-md transition cursor-pointer"
+                    onClick={() => onItemClick?.(p)}
+                  >
+                    <div className="relative aspect-square bg-white">
+                      <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+
+                      <div className="absolute top-1.5 left-1.5 flex flex-col gap-1">
+                        <Tag className="!m-0 !px-1.5 !py-0 rounded-lg border-0 bg-red-500 text-white text-[10px] leading-tight flex items-center">
+                          <Zap size={10} /> <span className="text-[10px]">{p.flashSale?.badge || "Flash"}</span>
                         </Tag>
-                      ) : null}
-                    </div>
-                  </div>
 
-                  <div className="p-3">
-                    <div className="text-[13px] font-bold text-gray-900 line-clamp-2 min-h-[36px]">{p.name}</div>
-
-                    <div className="mt-1 flex items-baseline justify-between gap-2">
-                      <div className="text-pink-600 font-extrabold">{money(p.price)}đ</div>
-                      {p.originalPrice ? (
-                        <div className="text-xs text-gray-400 line-through">{money(p.originalPrice)}đ</div>
-                      ) : null}
+                        {discount > 0 && (
+                          <Tag className="!m-0 !px-1.5 !py-0 rounded-lg border-0 bg-yellow-300 text-gray-900 text-[10px] font-bold">
+                            -{discount}%
+                          </Tag>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="mt-2">
-                      <Progress percent={soldPercent} size="small" showInfo={false} />
-                      <div className="mt-1 text-[11px] text-gray-600 flex justify-between">
-                        <span>Đã bán</span>
-                        <span className="font-semibold">{soldPercent}%</span>
+                    <div className="p-2.5 space-y-1.5">
+                      <div className="text-[12px] font-semibold text-gray-900 line-clamp-2 min-h-[32px]">
+                        {p.name}
+                      </div>
+
+                      <div className="flex items-end justify-between">
+                        <div>
+                          <div className="text-pink-600 font-bold text-[14px] leading-tight">
+                            {money(p.price)}đ
+                          </div>
+                          {p.originalPrice && (
+                            <div className="text-[10px] text-gray-400 line-through">
+                              {money(p.originalPrice)}đ
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <Progress percent={soldPercent} size="small" showInfo={false} />
+                        <div className="mt-0.5 text-[10px] text-gray-500 flex justify-between">
+                          <span>Đã bán</span>
+                          <span className="font-semibold">{soldText}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          onClick={() => handleAdd(p)} // ✅ ADD TO CART thật
+                          className="flex-1 h-8 px-0 rounded-xl border-0 bg-pink-600 text-white text-[11px] font-semibold hover:!bg-pink-700"
+                          icon={<ShoppingCart size={14} />}
+                        >
+                          Giỏ
+                        </Button>
+
+                        <Button
+                          onClick={() => onBuyNow?.(p)}
+                          className="flex-1 h-8 px-0 rounded-xl border border-pink-200 bg-white text-pink-700 text-[11px] font-semibold hover:!border-pink-400"
+                          icon={<CreditCard size={14} />}
+                        >
+                          Mua
+                        </Button>
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {top.length === 0 ? (
-            <div className="text-sm text-gray-500">Chưa có sản phẩm flash sale.</div>
-          ) : null}
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

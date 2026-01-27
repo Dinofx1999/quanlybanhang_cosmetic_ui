@@ -9,6 +9,7 @@ import {
   Menu,
   X,
   Store,
+  Zap
 } from "lucide-react";
 import api from "../../../services/api"; // chỉnh path nếu khác
 
@@ -61,6 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       { path: "/inventory", icon: Package, label: "Kiểm Kho" },
       { path: "/customers", icon: Users, label: "Khách Hàng" },
       { path: "/shop-settings", icon: Store, label: "Thông Tin Cửa Hàng" },
+      { path: "/flash-sales-admin", icon: Zap, label: "Flash Sales" },
     ],
     []
   );

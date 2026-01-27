@@ -383,7 +383,7 @@ export default function ProductDetailPage() {
     });
 
     message.success("Đã thêm vào giỏ hàng");
-    // setCartOpen(true);
+    setCartOpen(true);
   };
 
   const buyNow = () => {

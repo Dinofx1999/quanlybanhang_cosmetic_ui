@@ -34,6 +34,15 @@ type ProductOption = {
   order?: number;
 };
 
+type ProductOptionDraft = {
+  id: string;              // ✅ stable key
+  key: string;
+  label?: string;
+  values?: string[];
+  valuesText?: string;     // ✅ buffer text (smooth typing)
+  order?: number;
+};
+
 type ProductItem = {
   _id: string;
   sku: string;
@@ -157,6 +166,16 @@ function recordToAttrs(rec?: Record<string, string>): VariantAttr[] {
 
 function normalizeKey(s: string) {
   return String(s || "").toLowerCase().trim();
+}
+
+const makeId = () =>
+  (globalThis.crypto?.randomUUID?.() ?? `id_${Date.now()}_${Math.random().toString(16).slice(2)}`);
+
+function parseValuesText(text: string): string[] {
+  return String(text || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
 function extractCreatedProductId(created: any): string {
@@ -875,7 +894,8 @@ const ProductInputSection: React.FC = () => {
   const [variants, setVariants] = useState<VariantItem[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
 
-  const [productOptionsDraft, setProductOptionsDraft] = useState<ProductOption[]>([]);
+  const [productOptionsDraft, setProductOptionsDraft] = useState<ProductOptionDraft[]>([]);
+
   const [savingOptions, setSavingOptions] = useState(false);
 
   const [genOverwrite, setGenOverwrite] = useState(false);
@@ -1150,26 +1170,32 @@ const deleteImageInVariantEditModal = async (url: string) => {
   }, [activeTab]);
 
   useEffect(() => {
-    if (!selectedProduct) {
-      setProductOptionsDraft([]);
-      setVariants([]);
-      return;
-    }
-    const opts = Array.isArray(selectedProduct.options) ? selectedProduct.options : [];
-    setProductOptionsDraft(
-      opts
-        .slice()
-        .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
-        .map((o) => ({
+  if (!selectedProduct) {
+    setProductOptionsDraft([]);
+    setVariants([]);
+    return;
+  }
+  const opts = Array.isArray(selectedProduct.options) ? selectedProduct.options : [];
+  setProductOptionsDraft(
+    opts
+      .slice()
+      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+      .map((o) => {
+        const valuesArr = Array.isArray(o.values) ? o.values : [];
+        return {
+          id: makeId(),
           key: normalizeKey(o.key),
           label: o.label || "",
-          values: Array.isArray(o.values) ? o.values : [],
+          values: valuesArr,
+          valuesText: valuesArr.join(", "),
           order: Number(o.order || 0),
-        }))
-    );
+        } as ProductOptionDraft;
+      })
+  );
 
-    getVariants();
-  }, [selectedProductId]);
+  getVariants();
+}, [selectedProductId]);
+
 
   useEffect(() => {
     if (activeTab !== "variant") return;
@@ -1591,13 +1617,13 @@ const deleteImageInVariantEditModal = async (url: string) => {
     if (!selectedProduct) return;
 
     const cleaned = (productOptionsDraft || [])
-      .map((o) => ({
-        key: normalizeKey(o.key),
-        label: String(o.label || ""),
-        values: Array.isArray(o.values) ? o.values.map((x) => String(x || "").trim()).filter(Boolean) : [],
-        order: Number(o.order || 0),
-      }))
-      .filter((o) => o.key && o.values.length > 0);
+  .map((o) => ({
+    key: normalizeKey(o.key),
+    label: String(o.label || ""),
+    values: Array.isArray(o.values) ? o.values.map((x) => String(x || "").trim()).filter(Boolean) : [],
+    order: Number(o.order || 0),
+  }))
+  .filter((o) => o.key && o.values.length > 0);
 
     setSavingOptions(true);
     try {
@@ -2763,90 +2789,100 @@ const deleteImageInVariantEditModal = async (url: string) => {
               )}
 
               {productOptionsDraft.map((opt, idx) => (
-                <div key={`${opt.key}_${idx}`} className="rounded-2xl border border-gray-200 p-4 bg-gray-50/50">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <Field label="Key" required hint="VD: color, size (lowercase)">
-                      <input
-                        value={opt.key}
-                        onChange={(e) => {
-                          const next = productOptionsDraft.slice();
-                          next[idx] = { ...next[idx], key: normalizeKey(e.target.value) };
-                          setProductOptionsDraft(next);
-                        }}
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                        placeholder="color"
-                      />
-                    </Field>
+  <div key={opt.id} className="rounded-2xl border border-gray-200 p-4 bg-gray-50/50">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <Field label="Key" required hint="VD: color, size (lowercase)">
+        <input
+          value={opt.key}
+          onChange={(e) => {
+            const next = productOptionsDraft.slice();
+            next[idx] = { ...next[idx], key: normalizeKey(e.target.value) };
+            setProductOptionsDraft(next);
+          }}
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+          placeholder="color"
+        />
+      </Field>
 
-                    <Field label="Label" hint="VD: Màu, Size">
-                      <input
-                        value={opt.label || ""}
-                        onChange={(e) => {
-                          const next = productOptionsDraft.slice();
-                          next[idx] = { ...next[idx], label: e.target.value };
-                          setProductOptionsDraft(next);
-                        }}
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                        placeholder="Màu"
-                      />
-                    </Field>
+      <Field label="Label" hint="VD: Màu, Size">
+        <input
+          value={opt.label || ""}
+          onChange={(e) => {
+            const next = productOptionsDraft.slice();
+            next[idx] = { ...next[idx], label: e.target.value };
+            setProductOptionsDraft(next);
+          }}
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+          placeholder="Màu"
+        />
+      </Field>
 
-                    <Field label="Order">
-                      <input
-                        type="number"
-                        value={Number(opt.order || 0)}
-                        onChange={(e) => {
-                          const next = productOptionsDraft.slice();
-                          next[idx] = { ...next[idx], order: Number(e.target.value || 0) };
-                          setProductOptionsDraft(next);
-                        }}
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                      />
-                    </Field>
-                  </div>
+      <Field label="Order">
+        <input
+          type="number"
+          value={Number(opt.order || 0)}
+          onChange={(e) => {
+            const next = productOptionsDraft.slice();
+            next[idx] = { ...next[idx], order: Number(e.target.value || 0) };
+            setProductOptionsDraft(next);
+          }}
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+        />
+      </Field>
+    </div>
 
-                  <div className="mt-3">
-                    <Field label="Values" required hint='Nhập danh sách, phân cách bằng dấu phẩy. VD: "Xanh, Đen, Trắng"'>
-                      <input
-                        value={(opt.values || []).join(", ")}
-                        onChange={(e) => {
-                          const values = String(e.target.value || "")
-                            .split(",")
-                            .map((x) => x.trim())
-                            .filter(Boolean);
-                          const next = productOptionsDraft.slice();
-                          next[idx] = { ...next[idx], values };
-                          setProductOptionsDraft(next);
-                        }}
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
-                        placeholder="Xanh, Đen, Trắng"
-                      />
-                    </Field>
-                  </div>
+    <div className="mt-3">
+      <Field label="Values" required hint='Nhập danh sách, phân cách bằng dấu phẩy. VD: "Xanh, Đen, Trắng"'>
+        {/* ✅ mượt: dùng valuesText buffer, parse khi blur */}
+        <input
+          value={opt.valuesText ?? (opt.values || []).join(", ")}
+          onChange={(e) => {
+            const next = productOptionsDraft.slice();
+            next[idx] = { ...next[idx], valuesText: e.target.value };
+            setProductOptionsDraft(next);
+          }}
+          onBlur={() => {
+            const next = productOptionsDraft.slice();
+            const text = String(next[idx]?.valuesText ?? "");
+            const values = parseValuesText(text);
+            next[idx] = { ...next[idx], values, valuesText: values.join(", ") };
+            setProductOptionsDraft(next);
+          }}
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl outline-none"
+          placeholder="Xanh, Đen, Trắng"
+        />
+      </Field>
+    </div>
 
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = productOptionsDraft.filter((_, i) => i !== idx);
-                        setProductOptionsDraft(next);
-                      }}
-                      className="px-3 py-2 rounded-xl border border-red-200 hover:bg-red-50 text-sm font-semibold text-red-700"
-                    >
-                      Xoá option
-                    </button>
-                  </div>
-                </div>
-              ))}
+    <div className="mt-3 flex justify-end">
+      <button
+        type="button"
+        onClick={() => {
+          const next = productOptionsDraft.filter((x) => x.id !== opt.id);
+          setProductOptionsDraft(next);
+        }}
+        className="px-3 py-2 rounded-xl border border-red-200 hover:bg-red-50 text-sm font-semibold text-red-700"
+      >
+        Xoá option
+      </button>
+    </div>
+  </div>
+))}
+
 
               <button
-                type="button"
-                onClick={() => setProductOptionsDraft((prev) => [...prev, { key: "", label: "", values: [], order: prev.length }])}
-                className="w-full py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold"
-                disabled={!selectedProductId}
-              >
-                + Thêm option
-              </button>
+  type="button"
+  onClick={() =>
+    setProductOptionsDraft((prev) => [
+      ...prev,
+      { id: makeId(), key: "", label: "", values: [], valuesText: "", order: prev.length },
+    ])
+  }
+  className="w-full py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold"
+  disabled={!selectedProductId}
+>
+  + Thêm option
+</button>
             </div>
           </div>
         )}
