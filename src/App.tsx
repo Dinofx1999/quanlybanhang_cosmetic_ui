@@ -464,7 +464,6 @@ const AppInner: React.FC = () => {
         }
       >
         <Route index element={<Navigate to="/pos" replace />} />
-
         <Route
           path="pos"
           element={

@@ -15,8 +15,9 @@ import {
   Space,
   Tooltip,
   AutoComplete,
+    Upload,  
 } from "antd";
-import { Plus, Edit, Trash2, Flame, Boxes, ToggleLeft, ToggleRight } from "lucide-react";
+import { Plus, Edit, Trash2, Flame, Boxes, ToggleLeft, ToggleRight ,  UploadCloud  } from "lucide-react";
 import dayjs from "dayjs";
 import api from "../../../services/api";
 
@@ -77,6 +78,7 @@ type VariantOption = {
 /* ================= COMPONENT ================= */
 
 export default function FlashSaleManager() {
+  const [bannerFileList, setBannerFileList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [list, setList] = useState<FlashSale[]>([]);
   const [open, setOpen] = useState(false);
@@ -201,6 +203,7 @@ if (res.data) {
       status: "DRAFT",
       priority: 0,
     });
+    setBannerFileList([]);
     setOpen(true);
   };
 
@@ -216,6 +219,19 @@ if (res.data) {
       banner: fs.banner,
       priority: fs.priority || 0,
     });
+    // ✅ show preview nếu đã có banner
+  if (fs.banner) {
+    setBannerFileList([
+      {
+        uid: "banner-1",
+        name: "banner",
+        status: "done",
+        url: fs.banner,
+      },
+    ]);
+  } else {
+    setBannerFileList([]);
+  }
     setOpen(true);
   };
 
@@ -622,6 +638,29 @@ const variantMap = React.useMemo(() => {
   };
 
   /* ================= RENDER ================= */
+  const uploadBanner = async (file: File): Promise<string> => {
+  // ✅ anh đổi endpoint theo backend của anh
+  // gợi ý: /upload/single hoặc /uploads hoặc /files
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await api.post("/uploads/flashsale-banner", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+
+  // ✅ tùy response backend: {url} hoặc {data:{url}} hoặc {path}
+  console.log("Upload response:", res);
+  const url =
+    res.data?.file?.url ||
+    res.data?.data?.url ||
+    res.data?.path ||
+    res.data?.data?.path ||
+    "";
+
+  if (!url) throw new Error("Upload xong nhưng không nhận được URL");
+
+  return String(url);
+};
 
   return (
     <div className="p-5 bg-white rounded-2xl border border-pink-100 shadow-sm">
@@ -724,9 +763,54 @@ const variantMap = React.useMemo(() => {
             </Form.Item>
           </div>
 
-          <Form.Item label="Banner URL" name="banner">
-            <Input placeholder="https://..." />
-          </Form.Item>
+          <Form.Item label="Banner (Upload ảnh)">
+  <Upload
+    accept="image/*"
+    listType="picture-card"
+    fileList={bannerFileList}
+    maxCount={1}
+    onRemove={() => {
+      setBannerFileList([]);
+      form.setFieldsValue({ banner: "" });
+    }}
+    customRequest={async ({ file, onSuccess, onError }: any) => {
+      try {
+        const url = await uploadBanner(file as File);
+
+        // ✅ set vào form field banner để submit giữ nguyên logic cũ
+        form.setFieldsValue({ banner: url });
+
+        setBannerFileList([
+          {
+            uid: "banner-1",
+            name: (file as File).name,
+            status: "done",
+            url,
+          },
+        ]);
+
+        onSuccess?.("ok");
+        message.success("Upload banner thành công");
+      } catch (e: any) {
+        onError?.(e);
+        message.error(e?.message || "Upload banner thất bại");
+      }
+    }}
+  >
+    {bannerFileList.length >= 1 ? null : (
+      <div className="flex flex-col items-center justify-center gap-1">
+        <UploadCloud size={18} />
+        <div className="text-xs">Upload</div>
+      </div>
+    )}
+  </Upload>
+
+  {/* ✅ nếu anh vẫn muốn cho nhập tay URL */}
+  <Form.Item name="banner" className="mt-2 mb-0">
+    <Input placeholder="Hoặc dán URL banner..." />
+  </Form.Item>
+</Form.Item>
+
 
           <Form.Item label="Kích hoạt" name="isActive" valuePropName="checked">
             <Switch />
