@@ -1,6 +1,6 @@
 // src/pages/shop/ProductDetailPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams , useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Breadcrumb,
   Button,
@@ -150,9 +150,6 @@ type ApiCategoryProductsRes = {
 // =======================
 // Helpers
 // =======================
-
-
-
 function money(n: number) {
   return Number(n || 0).toLocaleString("vi-VN") + "đ";
 }
@@ -259,7 +256,7 @@ export default function ProductDetailPage() {
   const nav = useNavigate();
   const location = useLocation();
   const { id } = useParams();
-  const [searchParams] = useSearchParams(); // ✅ Add this
+  const [searchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<ApiProductDetail | null>(null);
@@ -278,7 +275,7 @@ export default function ProductDetailPage() {
   const [cartItems, setCartItems] = useState(() => getCart());
   const cartTotal = useMemo(() => getCartTotal(), [cartItems]);
 
-   const initDefaultSelection = (payload: ApiProductDetail) => {
+  const initDefaultSelection = (payload: ApiProductDetail) => {
     const init: Record<string, string> = {};
     if (payload.defaultVariant?.attributesObj) {
       Object.assign(init, payload.defaultVariant.attributesObj);
@@ -290,6 +287,22 @@ export default function ProductDetailPage() {
     setSelection(init);
   };
 
+  // ✅ URL helper: update ?variantId=
+  const updateVariantInUrl = (variantId?: string) => {
+    if (!id) return;
+
+    const next = new URLSearchParams(searchParams);
+    if (variantId) next.set("variantId", variantId);
+    else next.delete("variantId");
+
+    const qs = next.toString();
+    const nextUrl = qs ? `/product/${id}?${qs}` : `/product/${id}`;
+
+    // ✅ thay URL nhưng không reload + không push history quá nhiều
+    nav(nextUrl, { replace: true, state: location.state as any });
+  };
+
+  // subscribe cart
   useEffect(() => {
     setCartItems(getCart());
     const unsub = subscribeCart(() => setCartItems(getCart()));
@@ -298,7 +311,8 @@ export default function ProductDetailPage() {
     };
   }, []);
 
-    useEffect(() => {
+  // fetch product detail + init selection by variantId in URL
+  useEffect(() => {
     if (!id) return;
 
     const ctrl = new AbortController();
@@ -317,22 +331,15 @@ export default function ProductDetailPage() {
 
         setData(payload);
 
-        // ✅ Check if variantId is in URL query params
-        const variantIdFromUrl = searchParams.get('variantId');
-        
+        const variantIdFromUrl = searchParams.get("variantId");
         if (variantIdFromUrl) {
-          // Find the variant from URL
-          const targetVariant = payload.variants?.find(v => v._id === variantIdFromUrl);
-          
+          const targetVariant = payload.variants?.find((v) => v._id === variantIdFromUrl);
           if (targetVariant?.attributesObj) {
-            // Set selection from that variant
             setSelection(targetVariant.attributesObj);
           } else {
-            // Fallback to default behavior
             initDefaultSelection(payload);
           }
         } else {
-          // Normal behavior - use default variant
           initDefaultSelection(payload);
         }
       } catch (e: any) {
@@ -343,7 +350,8 @@ export default function ProductDetailPage() {
     })();
 
     return () => ctrl.abort();
-  }, [id, searchParams]); // ✅ Add searchParams dependency
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const product = data?.product;
   const options = data?.options || [];
@@ -352,6 +360,7 @@ export default function ProductDetailPage() {
 
   const availableMap = useMemo(() => buildAvailableMap(variants), [variants]);
 
+  // ✅ chosenVariant must be declared BEFORE any effect that uses it
   const chosenVariant = useMemo(() => {
     if (!data) return undefined;
 
@@ -361,6 +370,16 @@ export default function ProductDetailPage() {
     if (data.defaultVariant?._id) return data.defaultVariant;
     return variants.find((x) => x.isDefault);
   }, [data, variants, selection]);
+
+  // ✅ Sync chosenVariant -> URL (?variantId=...)
+  useEffect(() => {
+  if (!chosenVariant?._id) return;
+
+  const current = searchParams.get("variantId");
+  if (current !== chosenVariant._id) {
+    updateVariantInUrl(chosenVariant._id);
+  }
+}, [chosenVariant?._id]);
 
   const images = useMemo(() => pickImages(product, chosenVariant), [product, chosenVariant]);
 
@@ -407,7 +426,7 @@ export default function ProductDetailPage() {
 
   const isFlashSale = !!flashSaleInfo;
 
-  const addToCart = () => {
+  const addToCartHandler = () => {
     if (options.length && !chosenVariant?._id) return message.warning("Vui lòng chọn đầy đủ thuộc tính.");
     if (!product?._id) return;
 
@@ -483,7 +502,7 @@ export default function ProductDetailPage() {
         const items: ApiProduct[] = Array.isArray(payload?.items) ? payload.items : [];
 
         const filtered = items.filter((x) => x?._id && x._id !== product._id).slice(0, 8);
-        setRelated(filtered);
+        setRelated(filtered as any);
       } catch (e: any) {
         // silent
       } finally {
@@ -551,16 +570,18 @@ export default function ProductDetailPage() {
                   alt={product.name}
                   className="w-full h-full object-cover"
                   onError={(e) =>
-                    ((e.target as HTMLImageElement).src = "https://via.placeholder.com/900x900.png?text=Image+Error")
+                    ((e.target as HTMLImageElement).src =
+                      "https://via.placeholder.com/900x900.png?text=Image+Error")
                   }
                 />
 
                 <div className="absolute top-3 left-3 flex flex-wrap gap-2">
-                  {product.categoryName ? (
-                    <Tag className="!m-0 rounded-full border-0 bg-pink-600 text-white font-bold">{product.categoryName}</Tag>
-                  ) : null}
-                  
-                  {/* ✅ Flash Sale Badge */}
+                  {/* {product.categoryName ? (
+                    <Tag className="!m-0 rounded-full border-0 bg-pink-600 text-white font-bold">
+                      {product.categoryName}
+                    </Tag>
+                  ) : null} */}
+
                   {isFlashSale && flashSaleInfo && (
                     <Tag className="!m-0 rounded-full border-0 bg-red-500 text-white font-bold animate-pulse">
                       <Flame size={12} className="inline mr-1" />
@@ -568,11 +589,11 @@ export default function ProductDetailPage() {
                     </Tag>
                   )}
 
-                  {product.hasVariants ? (
+                  {/* {product.hasVariants ? (
                     <Tag className="!m-0 rounded-full border-0 bg-gray-900/70 text-white font-bold">
                       {product.totalVariants || variants.length} biến thể
                     </Tag>
-                  ) : null}
+                  ) : null} */}
                 </div>
 
                 <button
@@ -616,7 +637,9 @@ export default function ProductDetailPage() {
           {/* Info */}
           <div className="lg:col-span-6">
             <div className="rounded-[26px] border border-pink-100 bg-white shadow-sm p-5">
-              <div className="text-[22px] md:text-[28px] leading-tight font-extrabold text-gray-900">{product.name}</div>
+              <div className="text-[22px] md:text-[28px] leading-tight font-extrabold text-gray-900">
+                {product.name}
+              </div>
 
               <div className="mt-2 text-sm text-gray-600">
                 {product.brand ? <span className="font-semibold">{product.brand}</span> : null}
@@ -630,7 +653,6 @@ export default function ProductDetailPage() {
                 </div>
               ) : null}
 
-              {/* ✅ Flash Sale Info Banner */}
               {isFlashSale && flashSaleInfo && (
                 <div className="mt-4 rounded-2xl border-2 border-red-500 bg-gradient-to-r from-red-50 to-pink-50 p-4">
                   <div className="flex items-center justify-between gap-3">
@@ -660,7 +682,6 @@ export default function ProductDetailPage() {
               <div className="mt-4 rounded-2xl border border-pink-100 bg-gradient-to-r from-pink-50 to-white p-4">
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    {/* ✅ Show both flash price and original if flash sale */}
                     {isFlashSale && flashSaleInfo ? (
                       <div>
                         <div className="text-pink-600 text-3xl font-extrabold">{money(displayPrice)}</div>
@@ -674,12 +695,16 @@ export default function ProductDetailPage() {
                     ) : (
                       <div>
                         <div className="text-pink-600 text-3xl font-extrabold">{money(displayPrice)}</div>
-                        {priceRangeText ? <div className="text-xs text-gray-500 mt-1">Khoảng giá: {priceRangeText}</div> : null}
+                        {priceRangeText ? (
+                          <div className="text-xs text-gray-500 mt-1">Khoảng giá: {priceRangeText}</div>
+                        ) : null}
                       </div>
                     )}
-                    
+
                     {!isSelectionComplete ? (
-                      <div className="mt-2 text-xs font-semibold text-amber-700">Vui lòng chọn đủ thuộc tính để mua.</div>
+                      <div className="mt-2 text-xs font-semibold text-amber-700">
+                        Vui lòng chọn đủ thuộc tính để mua.
+                      </div>
                     ) : null}
                   </div>
 
@@ -695,7 +720,7 @@ export default function ProductDetailPage() {
                     </Button>
 
                     <Button
-                      onClick={addToCart}
+                      onClick={addToCartHandler}
                       disabled={!isSelectionComplete}
                       className="rounded-2xl border-pink-200 text-pink-700 h-11 font-extrabold"
                     >
@@ -716,7 +741,7 @@ export default function ProductDetailPage() {
                     <span className="ml-2">Mua ngay</span>
                   </Button>
                   <Button
-                    onClick={addToCart}
+                    onClick={addToCartHandler}
                     disabled={!isSelectionComplete}
                     className="rounded-2xl border-pink-200 text-pink-700 h-11 font-extrabold"
                   >
@@ -760,7 +785,12 @@ export default function ProductDetailPage() {
                             const disabled = !availForKey[v];
 
                             return (
-                              <Chip key={v} active={active} disabled={disabled} onClick={() => !disabled && toggleSelection(opt.key, v)}>
+                              <Chip
+                                key={v}
+                                active={active}
+                                disabled={disabled}
+                                onClick={() => !disabled && toggleSelection(opt.key, v)}
+                              >
                                 {v}
                               </Chip>
                             );
@@ -928,7 +958,8 @@ export default function ProductDetailPage() {
                   alt="preview"
                   className="w-full h-[520px] object-cover"
                   onError={(e) =>
-                    ((e.target as HTMLImageElement).src = "https://via.placeholder.com/900x900.png?text=Image+Error")
+                    ((e.target as HTMLImageElement).src =
+                      "https://via.placeholder.com/900x900.png?text=Image+Error")
                   }
                 />
               </div>
@@ -1005,7 +1036,8 @@ export default function ProductDetailPage() {
                     alt={it.name}
                     className="w-16 h-16 rounded-xl object-cover border border-pink-100"
                     onError={(e) =>
-                      ((e.currentTarget as HTMLImageElement).src = "https://via.placeholder.com/120x120.png?text=No+Image")
+                      ((e.currentTarget as HTMLImageElement).src =
+                        "https://via.placeholder.com/120x120.png?text=No+Image")
                     }
                   />
 
@@ -1101,7 +1133,7 @@ export default function ProductDetailPage() {
               <span className="ml-2">Mua ngay</span>
             </Button>
             <Button
-              onClick={addToCart}
+              onClick={addToCartHandler}
               disabled={!isSelectionComplete}
               className="rounded-2xl border-pink-200 text-pink-700 h-11 font-extrabold"
             >

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { Badge, Input, Button } from "antd";
-import { Search, ShoppingBag, TicketPercent, Flame } from "lucide-react";
+import { Search, ShoppingBag, TicketPercent, Flame , Package } from "lucide-react";
 import { getCartCount, subscribeCart } from "../../../../utils/cart";
 import CartDrawer from "./CartDrawer"; // ✅ chỉnh path nếu khác
 import { useNavigate } from "react-router-dom";
+import OrdersDrawer from "./OrdersDrawer"; 
 
 type Props = {
   onSearch?: (q: string) => void;
@@ -15,6 +16,7 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
   const nav = useNavigate();
   const [cartCount, setCartCount] = useState<number>(() => getCartCount());
   const [openCart, setOpenCart] = useState(false);
+  const [openOrders, setOpenOrders] = useState(false);
 
   useEffect(() => {
     setCartCount(getCartCount());
@@ -51,10 +53,16 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
             <Input
               size="large"
               allowClear
-              placeholder="Tìm kiếm sản phẩm, thương hiệu..."
+              placeholder="Tìm kiếm thông tin theo Mã Đơn Hàng đã đặt..."
               prefix={<Search size={18} className="text-pink-500" />}
               className="rounded-2xl"
-              onChange={(e) => onSearch?.(e.target.value)}
+              onPressEnter={(e) => {
+              const value = (e.target as HTMLInputElement).value.trim();
+              if (!value) return;
+
+              // ví dụ: điều hướng sang trang xem đơn hàng
+              nav(`/my-orders/${value}`);
+            }}
             />
           </div>
 
@@ -85,12 +93,22 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
                 <span className="hidden md:inline ml-1">Giỏ</span>
               </Button>
             </Badge>
+
+            <Badge color="#ec4899" overflowCount={99}>
+              <Button
+              onClick={() => setOpenOrders(true)}
+              className="rounded-2xl border-pink-200 text-pink-600 hover:!border-pink-300 hover:!text-pink-700"
+            >
+              <Package size={18} />
+              <span className="hidden md:inline ml-1">Đơn hàng</span>
+            </Button>
+            </Badge>
           </div>
         </div>
       </div>
-
       {/* ✅ Drawer cart */}
       <CartDrawer open={openCart} onClose={() => setOpenCart(false)} />
+        <OrdersDrawer open={openOrders} onClose={() => setOpenOrders(false)} />
     </>
   );
 }

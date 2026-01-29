@@ -25,6 +25,8 @@ import ProductDetailPage from "./components/ShopOnline/pages/ProductDetailPage";
 import ProductCategory from "./components/ShopOnline/pages/ProductCategory";
 import ProductFlashSale from "./components/ShopOnline/pages/ProductFlashSale";
 import CheckoutPage from "./components/ShopOnline/components/shop/CheckoutPage";
+import MyOrdersPage from "./components/ShopOnline/components/shop/MyOrdersPage";
+import OrderDetailPage from "./components/ShopOnline/components/shop/OrderDetailPage";
 
 // ===============================
 // Types
@@ -448,6 +450,8 @@ const AppInner: React.FC = () => {
       <Route path="/category/:categoryId" element={<ProductCategory />} />
       <Route path="/flash-sale/:flashSaleId" element={<ProductFlashSale />} />
       <Route path="/checkout" element={<CheckoutPage />} />
+      <Route path="/my-orders" element={<MyOrdersPage />} />
+      <Route path="/my-orders/:orderId" element={<OrderDetailPage />} />
 
       <Route
         path="/"

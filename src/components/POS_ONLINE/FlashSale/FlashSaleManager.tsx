@@ -607,7 +607,7 @@ const variantMap = React.useMemo(() => {
         <Button
           danger
           size="small"
-          onClick={() => removeVariant(r._id)}
+          onClick={() => removeVariant(r.variantId)}
           icon={<Trash2 size={14} />}
         />
       ),

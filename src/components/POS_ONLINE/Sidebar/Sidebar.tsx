@@ -63,6 +63,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       { path: "/customers", icon: Users, label: "Khách Hàng" },
       { path: "/shop-settings", icon: Store, label: "Thông Tin Cửa Hàng" },
       { path: "/flash-sales-admin", icon: Zap, label: "Flash Sales" },
+      { path: "/shop", icon: Store, label: "Shop Online" },
     ],
     []
   );

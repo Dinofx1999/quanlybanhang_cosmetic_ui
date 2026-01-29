@@ -6,6 +6,15 @@ import { ArrowLeft, BadgePercent, Flame, Clock3, RefreshCw, ShoppingCart, Zap } 
 import ProductCard from "../components/shop/ProductCard";
 import ShopHeader from "../components/shop/ShopHeader";
 import api from "../../../services/api";
+import {
+  addItem,
+  getCart,
+  getCartTotal,
+  subscribeCart,
+  setQty,
+  removeItem,
+  clearCart,
+} from "../../../utils/cart";
 
 // =======================
 // Types
@@ -227,8 +236,26 @@ export default function ProductFlashSale() {
 
   // ✅ Actions (demo)
   const addToCart = (it: ApiFlashSaleItem) => {
-    message.success(`Đã thêm vào giỏ: ${it.productName}`);
-  };
+  addItem({
+    id: it._id,                    // ✅ unique cho cart (flash item id)
+    productId: it.productId,
+    variantId: it._id,             // nếu backend đang coi flash item = variant
+    name: it.productName,
+    price: Number(it.flashPrice || 0),
+    qty: 1,
+    image: getItemImage(it),
+    sku: it.sku,
+    variantName: it.name,
+    attrsText: it.attributes?.map((a) => `${a.k}: ${a.v}`).join(", "),
+    // meta: {
+    //   flashSale: true,
+    //   originalPrice: it.originalPrice,
+    //   discountPercent: it.discountPercent,
+    // },
+  });
+
+  message.success(`Đã thêm vào giỏ: ${it.productName}`);
+};
 
   const buyNow = (it: ApiFlashSaleItem) => {
     message.success(`Mua ngay: ${it.productName} (demo)`);
@@ -451,9 +478,9 @@ export default function ProductFlashSale() {
                         {/* Desktop buttons */}
                         <div className="mt-2 hidden sm:flex gap-1.5">
   <Button
-    size="small"
-    onClickCapture={(e) => e.stopPropagation()}
-    onClick={() => addToCart(it)}
+  size="small"
+  onMouseDown={(e) => e.stopPropagation()}
+  onClick={() => addToCart(it)}
     className="
       flex-1 h-8
       rounded-xl

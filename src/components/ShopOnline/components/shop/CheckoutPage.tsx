@@ -155,8 +155,7 @@ export default function CheckoutPage() {
       }
 
       const order = res.data.order;
-
-      message.success({
+         message.success({
         content: (
           <div>
             <CheckCircle className="inline mr-2" size={16} />
@@ -165,6 +164,12 @@ export default function CheckoutPage() {
         ),
         duration: 5,
       });
+      if (payload.customer) {
+        localStorage.setItem("last_order_phone", payload?.customer?.phone);
+      }
+      nav(`/my-orders/${order.code}`, { replace: true });
+
+   
 
       // ✅ Clear cart only if not buyNow mode
       if (!isBuyNow) {
@@ -172,9 +177,9 @@ export default function CheckoutPage() {
       }
 
       // ✅ Navigate to order success page or back to shop
-      setTimeout(() => {
-        nav("/shop", { replace: true });
-      }, 1500);
+    //   setTimeout(() => {
+    //     nav("/shop", { replace: true });
+    //   }, 1500);
 
     } catch (e: any) {
       console.error("Submit order error:", e);
