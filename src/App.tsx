@@ -453,75 +453,75 @@ const AppInner: React.FC = () => {
   };
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />}
-      />
+  <Routes>
+    {/* Đăng nhập - redirect về /admin/pos thay vì / */}
+    <Route
+      path="/login"
+      element={isLoggedIn ? <Navigate to="/admin/pos" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />}
+    />
 
-      {/* SHOP ONLINE */}
-      <Route path="/shop" element={<ShopOnlinePage />} />
-      <Route path="/product/:id" element={<ProductDetailPage />} />
-      <Route path="/category/:categoryId" element={<ProductCategory />} />
-      <Route path="/flash-sale/:flashSaleId" element={<ProductFlashSale />} />
-      <Route path="/checkout" element={<CheckoutPage />} />
-      <Route path="/my-orders" element={<MyOrdersPage />} />
-      <Route path="/my-orders/:orderId" element={<OrderDetailPage />} />
+    {/* SHOP ONLINE - Giờ ở trang chủ / */}
+    <Route path="/" element={<ShopOnlinePage />} />
+    <Route path="/product/:id" element={<ProductDetailPage />} />
+    <Route path="/category/:categoryId" element={<ProductCategory />} />
+    <Route path="/flash-sale/:flashSaleId" element={<ProductFlashSale />} />
+    <Route path="/checkout" element={<CheckoutPage />} />
+    <Route path="/my-orders" element={<MyOrdersPage />} />
+    <Route path="/my-orders/:orderId" element={<OrderDetailPage />} />
 
+    {/* HỆ THỐNG POS - Di chuyển sang /admin */}
+    <Route
+      path="/admin"
+      element={
+        <ProtectedRoute isAuthenticated={isLoggedIn}>
+          <Layout
+            currentUser={currentUser}
+            onLogout={() => {
+              setIsLoggedIn(false);
+              setCurrentUser(null);
+            }}
+          />
+        </ProtectedRoute>
+      }
+    >
+      <Route index element={<Navigate to="/admin/pos" replace />} />
       <Route
-        path="/"
+        path="pos"
         element={
-          <ProtectedRoute isAuthenticated={isLoggedIn}>
-            <Layout
-              currentUser={currentUser}
-              onLogout={() => {
-                setIsLoggedIn(false);
-                setCurrentUser(null);
-              }}
-            />
-          </ProtectedRoute>
+          <POSSection
+            activeOrders={activeOrders}
+            currentOrderId={currentOrderId}
+            setCurrentOrderId={setCurrentOrderId}
+            createNewOrder={createNewOrder}
+            deleteOrder={deleteOrder}
+            addToCart={addToCart}
+            updateQuantity={updateQuantity}
+            removeFromCart={removeFromCart}
+            updateCustomerName={updateCustomerName}
+            getTotal={getTotal}
+            completeOrder={completeOrder}
+            completeOrderWithStatus={completeOrderWithStatus as any}
+            getCurrentOrder={getCurrentOrderFn}
+            posBranchId={posBranchId}
+            setPosBranchId={setPosBranchId}
+            currentUser={currentUser}
+            replaceCurrentOrderItems={replaceCurrentOrderItems as any}
+          />
         }
-      >
-        <Route index element={<Navigate to="/pos" replace />} />
-        <Route
-          path="pos"
-          element={
-            <POSSection
-              activeOrders={activeOrders}
-              currentOrderId={currentOrderId}
-              setCurrentOrderId={setCurrentOrderId}
-              createNewOrder={createNewOrder}
-              deleteOrder={deleteOrder}
-              addToCart={addToCart}
-              updateQuantity={updateQuantity}
-              removeFromCart={removeFromCart}
-              updateCustomerName={updateCustomerName}
-              getTotal={getTotal}
-              completeOrder={completeOrder}
-              completeOrderWithStatus={completeOrderWithStatus as any}
-              getCurrentOrder={getCurrentOrderFn}
-              posBranchId={posBranchId}
-              setPosBranchId={setPosBranchId}
-              currentUser={currentUser}
-              replaceCurrentOrderItems={replaceCurrentOrderItems as any}
-            />
-          }
-        />
+      />
+      <Route path="orders" element={<OrdersSection />} />
+      <Route path="products" element={<ProductInputSection />} />
+      <Route path="inventory" element={<InventorySection />} />
+      <Route path="warehouse" element={<WarehouseSection />} />
+      <Route path="customers" element={<CustomersSection />} />
+      <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
+      <Route path="flash-sales-admin" element={<FlashSalesAdminSection />} />
+    </Route>
 
-        <Route path="orders" element={<OrdersSection />} />
-        <Route path="products" element={<ProductInputSection />} />
-        <Route path="inventory" element={<InventorySection />} />
-        <Route path="warehouse" element={<WarehouseSection />} />
-        <Route path="customers" element={<CustomersSection />} />
-        {/* <Route path="revenue" element={<RevenueSection />} /> */}
-        <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
-        <Route path="flash-sales-admin" element={<FlashSalesAdminSection />} />
-        <Route path="shop" element={<ShopOnlinePage />} />
-      </Route>
-
-      <Route path="*" element={<Navigate to="/shop" replace />} />
-    </Routes>
-  );
+    {/* Redirect các đường dẫn không tồn tại về trang chủ */}
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes>
+);
 };
 
 const App: React.FC = () => (

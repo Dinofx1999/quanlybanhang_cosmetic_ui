@@ -2012,7 +2012,7 @@ const ShopSettings: React.FC<Props> = ({ branchId, customers = [] }) => {
             <Col span={12}>
               <Form.Item label="Logo" name="logo">
                 <Space style={{ width: "100%", justifyContent: "space-between" }}>
-                  <Input placeholder="http://.../uploads/..." />
+                  <Input placeholder="https://.../uploads/..." />
                   <Upload {...branchLogoUploadProps}>
                     <Button>Upload</Button>
                   </Upload>
