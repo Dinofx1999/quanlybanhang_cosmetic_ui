@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Badge, Input, Button } from "antd";
-import { Search, ShoppingBag, TicketPercent, Flame , Package } from "lucide-react";
+import { Search, ShoppingBag, TicketPercent, Flame, Package } from "lucide-react";
 import { getCartCount, subscribeCart } from "../../../../utils/cart";
-import CartDrawer from "./CartDrawer"; // ✅ chỉnh path nếu khác
+import CartDrawer from "./CartDrawer";
+import OrdersDrawer from "./OrdersDrawer";
 import { useNavigate } from "react-router-dom";
-import OrdersDrawer from "./OrdersDrawer"; 
+import axios from "axios";
 
 type Props = {
   onSearch?: (q: string) => void;
@@ -12,18 +13,59 @@ type Props = {
   onGoFlash?: () => void;
 };
 
+type BrandInfo = {
+  logo?: string;
+  brandName?: string;
+};
+
 export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props) {
   const nav = useNavigate();
+
   const [cartCount, setCartCount] = useState<number>(() => getCartCount());
   const [openCart, setOpenCart] = useState(false);
   const [openOrders, setOpenOrders] = useState(false);
 
+  const [brand, setBrand] = useState<BrandInfo>({
+    logo: "",
+    brandName: "",
+  });
+
+  // ==========================
+  // Load cart count
+  // ==========================
   useEffect(() => {
     setCartCount(getCartCount());
     const unsubscribe = subscribeCart(() => setCartCount(getCartCount()));
     return () => {
-      // call unsubscribe and ignore its return value to satisfy EffectCallback type
       unsubscribe();
+    };
+  }, []);
+
+  // ==========================
+  // Load brand logo (PUBLIC)
+  // ==========================
+  useEffect(() => {
+    let mounted = true;
+
+    axios
+      .get(`${process.env.REACT_APP_API_URL}/public/logo`)
+      .then((res) => {
+        console.log("Loaded brand info:", res.data);
+        if (!mounted) return;
+        if (res.data?.success) {
+          
+          setBrand({
+            logo: res.data.logo,
+            brandName: res.data.brandName,
+          });
+        }
+      })
+      .catch(() => {
+        // fail silently – không crash UI
+      });
+
+    return () => {
+      mounted = false;
     };
   }, []);
 
@@ -31,24 +73,36 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
     <>
       <div className="sticky top-0 z-40 w-full bg-white/90 backdrop-blur border-b border-pink-100">
         <div className="w-full px-5 md:px-8 lg:px-10 py-3 flex items-center gap-3">
+          {/* ===== Brand ===== */}
           <div className="flex items-center gap-2 shrink-0">
-            <div className="h-10 w-10 rounded-2xl bg-pink-500 flex items-center justify-center shadow-sm">
-              <img
-                alt="logo"
-                className="w-full h-full object-cover"
-                src={`${process.env.REACT_APP_API_URL}/uploads/branches/1768574184904-1628e0c38b65dce695ad7e55.jpg`}
-              />
+            <div
+              className="h-10 w-10 bg-pink-500 flex items-center justify-center shadow-sm cursor-pointer overflow-hidden"
+              onClick={() => nav("/shop")}
+            >
+              {brand.logo ? (
+                <img
+                  alt="logo"
+                  className="w-full h-full object-cover"
+                  src={brand.logo}
+                />
+              ) : (
+                <span className="text-white font-bold">BA</span>
+              )}
             </div>
+
             <div className="leading-tight hidden sm:block">
-              <div className="font-extrabold text-gray-900 cursor-pointer"
-               onClick={() => nav('/shop')}
-              >
-                Bảo Ân <span className="text-pink-600">Cosmetics</span>
-              </div>
-              <div className="text-xs text-gray-500">Deal sốc mỗi ngày</div>
-            </div>
+  <div
+    className="font-extrabold cursor-pointer"
+    onClick={() => nav("/shop")}
+  >
+    <span className="text-[#052d69]">Bảo Ân</span>{" "}
+    <span className="text-pink-600">Cosmetics</span>
+  </div>
+  <div className="text-xs text-gray-500">Deal sốc mỗi ngày</div>
+</div>
           </div>
 
+          {/* ===== Search ===== */}
           <div className="flex-1">
             <Input
               size="large"
@@ -57,15 +111,14 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
               prefix={<Search size={18} className="text-pink-500" />}
               className="rounded-2xl"
               onPressEnter={(e) => {
-              const value = (e.target as HTMLInputElement).value.trim();
-              if (!value) return;
-
-              // ví dụ: điều hướng sang trang xem đơn hàng
-              nav(`/my-orders/${value}`);
-            }}
+                const value = (e.target as HTMLInputElement).value.trim();
+                if (!value) return;
+                nav(`/my-orders/${value}`);
+              }}
             />
           </div>
 
+          {/* ===== Actions ===== */}
           <div className="flex items-center gap-2 shrink-0">
             <Button
               onClick={onOpenVoucher}
@@ -94,21 +147,20 @@ export default function ShopHeader({ onSearch, onOpenVoucher, onGoFlash }: Props
               </Button>
             </Badge>
 
-            <Badge color="#ec4899" overflowCount={99}>
-              <Button
+            <Button
               onClick={() => setOpenOrders(true)}
               className="rounded-2xl border-pink-200 text-pink-600 hover:!border-pink-300 hover:!text-pink-700"
             >
               <Package size={18} />
               <span className="hidden md:inline ml-1">Đơn hàng</span>
             </Button>
-            </Badge>
           </div>
         </div>
       </div>
-      {/* ✅ Drawer cart */}
+
+      {/* ===== Drawers ===== */}
       <CartDrawer open={openCart} onClose={() => setOpenCart(false)} />
-        <OrdersDrawer open={openOrders} onClose={() => setOpenOrders(false)} />
+      <OrdersDrawer open={openOrders} onClose={() => setOpenOrders(false)} />
     </>
   );
 }

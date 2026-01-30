@@ -18,6 +18,7 @@ import FlashSalesAdminSection from "./components/POS_ONLINE/FlashSale/FlashSaleM
 import { BRANCH_KEY, getPosBranchId } from "./services/branchContext";
 import { isAuthenticated, getCurrentUser } from "./services/authService";
 import api from "./services/api";
+import { setFavicon } from "./utils/setFavicon";
 
 // Shop Online
 import ShopOnlinePage from "./components/ShopOnline/pages/ShopHome";
@@ -27,6 +28,7 @@ import ProductFlashSale from "./components/ShopOnline/pages/ProductFlashSale";
 import CheckoutPage from "./components/ShopOnline/components/shop/CheckoutPage";
 import MyOrdersPage from "./components/ShopOnline/components/shop/MyOrdersPage";
 import OrderDetailPage from "./components/ShopOnline/components/shop/OrderDetailPage";
+import axios from "axios";
 
 // ===============================
 // Types
@@ -143,6 +145,18 @@ const AppInner: React.FC = () => {
       setCurrentUser(u);
       setPosBranchId(getPosBranchId(u));
     }
+  }, []);
+
+   useEffect(() => {
+    axios
+      .get(`${process.env.REACT_APP_API_URL}/public/logo`)
+      .then((res) => {
+        if (res.data?.success && res.data.logo) {
+          setFavicon(res.data.logo);
+          document.title = `${res.data.brandName || "Bảo Ân Cosmetics"}`;
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleLoginSuccess = (data: any) => {

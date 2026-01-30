@@ -136,10 +136,9 @@ export default function OrdersDrawer({ open, onClose, phoneKey = "last_order_pho
     >
       {!hasPhone && (
         <div className="rounded-2xl border border-pink-100 bg-pink-50/40 p-4">
-          <div className="font-semibold text-gray-900">Chưa có số điện thoại</div>
+          <div className="font-semibold text-gray-900">Chưa có đơn hàng bạn ơi</div>
           <div className="text-sm text-gray-600 mt-1">
-            Bạn cần đặt hàng 1 lần để hệ thống lưu SĐT (key <b>{phoneKey}</b>) hoặc bạn có thể lưu thủ công vào
-            localStorage.
+            Bạn hãy đặt hàng bạn nhé, sau đó nhập mã đơn hàng để tra cứu đơn hàng.
           </div>
           <Divider className="!my-3" />
           <Button

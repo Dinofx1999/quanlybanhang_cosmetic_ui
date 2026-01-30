@@ -271,7 +271,7 @@ export default function ShopHome() {
           )}
         </div>
 
-        <VoucherBar onApply={() => {}} />
+        {/* <VoucherBar onApply={() => {}} /> */}
         
         <div className="bg-white border border-pink-100 rounded-[22px] p-3 md:p-4 shadow-sm">
           <CategoryBar
