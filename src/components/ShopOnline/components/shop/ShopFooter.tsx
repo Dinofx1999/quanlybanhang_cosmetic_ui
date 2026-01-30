@@ -10,7 +10,7 @@ export default function ShopFooter() {
           {/* brand */}
           <div>
             <div className="text-xl font-extrabold text-gray-900">
-              BA <span className="text-pink-600">Cosmetics</span>
+              Bảo Ân <span className="text-pink-600">Cosmetics</span>
             </div>
             <div className="mt-2 text-sm text-gray-600 leading-relaxed">
               Mỹ phẩm chính hãng – giá tốt – giao nhanh. Tư vấn nhiệt tình, đổi trả rõ ràng.
@@ -32,11 +32,11 @@ export default function ShopFooter() {
             <div className="mt-3 space-y-3 text-sm text-gray-700">
               <div className="flex items-center gap-2">
                 <MapPin size={16} className="text-pink-600" />
-                123 Đường Hoa Hồng, Tam Kỳ, Quảng Nam
+                156 Hùng Vương, Tam Kỳ, Quảng Nam
               </div>
               <div className="flex items-center gap-2">
                 <PhoneCall size={16} className="text-pink-600" />
-                0900 000 000
+                0924 8888 94
               </div>
               <div className="flex items-center gap-2">
                 <Mail size={16} className="text-pink-600" />
@@ -70,7 +70,7 @@ export default function ShopFooter() {
             <div className="mt-3 space-y-3 text-sm text-gray-700">
               <div className="rounded-2xl border border-pink-100 bg-pink-50/40 p-4">
                 <div className="font-bold text-gray-900">Hotline tư vấn</div>
-                <div className="mt-1 text-pink-600 font-extrabold text-lg">0900 000 000</div>
+                <div className="mt-1 text-pink-600 font-extrabold text-lg">0924 8888 94</div>
                 <div className="mt-1 text-xs text-gray-600">08:00 - 22:00 (T2 - CN)</div>
               </div>
 
@@ -86,7 +86,7 @@ export default function ShopFooter() {
       {/* bottom bar */}
       <div className="w-full border-t border-pink-100 py-4 px-5 md:px-8 lg:px-10 text-xs text-gray-500 flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
         <div>© {new Date().getFullYear()} BA Cosmetics. All rights reserved.</div>
-        <div className="text-gray-500">Thiết kế UI: Trắng/Hồng • Style Shopee-like</div>
+        {/* <div className="text-gray-500">Thiết kế UI: Trắng/Hồng • Style Shopee-like</div> */}
       </div>
     </div>
   );
