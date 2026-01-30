@@ -39,7 +39,7 @@ const money = (n: number) => Number(n || 0).toLocaleString("vi-VN") + "đ";
 
 function statusTag(status: string) {
   const s = String(status || "").toUpperCase();
-  if (s === "PAID" || s === "COMPLETED" || s === "DONE")
+  if (s === "PAID" || s === "COMPLETED" || s === "DONE" || s === "CONFIRM")
     return <Tag className="!m-0 rounded-full border-0 bg-green-600 text-white font-extrabold">ĐÃ THANH TOÁN</Tag>;
   if (s === "SHIPPING")
     return <Tag className="!m-0 rounded-full border-0 bg-blue-600 text-white font-extrabold">ĐANG GIAO</Tag>;
