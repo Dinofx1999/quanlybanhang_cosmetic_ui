@@ -152,6 +152,7 @@ const AppInner: React.FC = () => {
       .get(`${process.env.REACT_APP_API_URL}/public/logo`)
       .then((res) => {
         if (res.data?.success && res.data.logo) {
+          console.log("Setting favicon:", res.data.logo);
           setFavicon(res.data.logo);
           document.title = `${res.data.brandName || "Bảo Ân Cosmetics"}`;
         }
