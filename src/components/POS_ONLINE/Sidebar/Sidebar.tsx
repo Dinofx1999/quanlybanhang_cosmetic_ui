@@ -54,16 +54,17 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [mainBranch, setMainBranch] = useState<BranchLite | null>(null);
   const [loadingMain, setLoadingMain] = useState(false);
 
+  // ✅ CẬP NHẬT: Thêm prefix /admin/ cho tất cả menu admin, trừ Shop Online là /
   const menuItems = useMemo(
     () => [
-      { path: "/pos", icon: ShoppingCart, label: "Bán Hàng" },
-      { path: "/orders", icon: FileText, label: "Đơn Hàng" },
-      { path: "/products", icon: Inbox, label: "Sản Phẩm" },
-      { path: "/inventory", icon: Package, label: "Kiểm Kho" },
-      { path: "/customers", icon: Users, label: "Khách Hàng" },
-      { path: "/shop-settings", icon: Store, label: "Thông Tin Cửa Hàng" },
-      { path: "/flash-sales-admin", icon: Zap, label: "Flash Sales" },
-      { path: "/shop", icon: Store, label: "Shop Online" },
+      { path: "/admin/pos", icon: ShoppingCart, label: "Bán Hàng" },
+      { path: "/admin/orders", icon: FileText, label: "Đơn Hàng" },
+      { path: "/admin/products", icon: Inbox, label: "Sản Phẩm" },
+      { path: "/admin/inventory", icon: Package, label: "Kiểm Kho" },
+      { path: "/admin/customers", icon: Users, label: "Khách Hàng" },
+      { path: "/admin/shop-settings", icon: Store, label: "Thông Tin Cửa Hàng" },
+      { path: "/admin/flash-sales-admin", icon: Zap, label: "Flash Sales" },
+      { path: "/", icon: Store, label: "Shop Online" },
     ],
     []
   );

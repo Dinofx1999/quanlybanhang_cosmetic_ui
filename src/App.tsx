@@ -147,7 +147,7 @@ const AppInner: React.FC = () => {
     }
   }, []);
 
-   useEffect(() => {
+  useEffect(() => {
     axios
       .get(`${process.env.REACT_APP_API_URL}/public/logo`)
       .then((res) => {
@@ -167,11 +167,11 @@ const AppInner: React.FC = () => {
     setPosBranchId(getPosBranchId(u));
   };
 
-  // POS must select single branch
+  // POS must select single branch - ✅ ĐÃ SỬA: /pos → /admin/pos
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    const isPOS = location.pathname.startsWith("/pos");
+    const isPOS = location.pathname.startsWith("/admin/pos");
     if (!isPOS) return;
 
     const u = getCurrentUser();
@@ -179,7 +179,7 @@ const AppInner: React.FC = () => {
 
     if (mustSelectSingleBranchForPOS(u, nextPosBranch)) {
       message.warning("POS bắt buộc chọn 1 chi nhánh (không được chọn Tất cả). Vui lòng chọn chi nhánh ở Layout.");
-      navigate("/inventory", { replace: true });
+      navigate("/admin/inventory", { replace: true });
     }
   }, [isLoggedIn, location.pathname, navigate]);
 
@@ -453,75 +453,76 @@ const AppInner: React.FC = () => {
   };
 
   return (
-  <Routes>
-    {/* Đăng nhập - redirect về /admin/pos thay vì / */}
-    <Route
-      path="/login"
-      element={isLoggedIn ? <Navigate to="/admin/pos" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />}
-    />
-
-    {/* SHOP ONLINE - Giờ ở trang chủ / */}
-    <Route path="/" element={<ShopOnlinePage />} />
-    <Route path="/product/:id" element={<ProductDetailPage />} />
-    <Route path="/category/:categoryId" element={<ProductCategory />} />
-    <Route path="/flash-sale/:flashSaleId" element={<ProductFlashSale />} />
-    <Route path="/checkout" element={<CheckoutPage />} />
-    <Route path="/my-orders" element={<MyOrdersPage />} />
-    <Route path="/my-orders/:orderId" element={<OrderDetailPage />} />
-
-    {/* HỆ THỐNG POS - Di chuyển sang /admin */}
-    <Route
-      path="/admin"
-      element={
-        <ProtectedRoute isAuthenticated={isLoggedIn}>
-          <Layout
-            currentUser={currentUser}
-            onLogout={() => {
-              setIsLoggedIn(false);
-              setCurrentUser(null);
-            }}
-          />
-        </ProtectedRoute>
-      }
-    >
-      <Route index element={<Navigate to="/admin/pos" replace />} />
+    <Routes>
+      {/* Đăng nhập - ✅ redirect đến /admin/pos */}
       <Route
-        path="pos"
-        element={
-          <POSSection
-            activeOrders={activeOrders}
-            currentOrderId={currentOrderId}
-            setCurrentOrderId={setCurrentOrderId}
-            createNewOrder={createNewOrder}
-            deleteOrder={deleteOrder}
-            addToCart={addToCart}
-            updateQuantity={updateQuantity}
-            removeFromCart={removeFromCart}
-            updateCustomerName={updateCustomerName}
-            getTotal={getTotal}
-            completeOrder={completeOrder}
-            completeOrderWithStatus={completeOrderWithStatus as any}
-            getCurrentOrder={getCurrentOrderFn}
-            posBranchId={posBranchId}
-            setPosBranchId={setPosBranchId}
-            currentUser={currentUser}
-            replaceCurrentOrderItems={replaceCurrentOrderItems as any}
-          />
-        }
+        path="/login"
+        element={isLoggedIn ? <Navigate to="/admin/pos" replace /> : <LoginPage onLoginSuccess={handleLoginSuccess} />}
       />
-      <Route path="orders" element={<OrdersSection />} />
-      <Route path="products" element={<ProductInputSection />} />
-      <Route path="inventory" element={<InventorySection />} />
-      <Route path="warehouse" element={<WarehouseSection />} />
-      <Route path="customers" element={<CustomersSection />} />
-      <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
-      <Route path="flash-sales-admin" element={<FlashSalesAdminSection />} />
-    </Route>
 
-    {/* Redirect các đường dẫn không tồn tại về trang chủ */}
-    <Route path="*" element={<Navigate to="/" replace />} />
-  </Routes>
-);
+      {/* ✅ SHOP ONLINE - Giờ ở trang chủ / */}
+      <Route path="/" element={<ShopOnlinePage />} />
+      <Route path="/product/:id" element={<ProductDetailPage />} />
+      <Route path="/category/:categoryId" element={<ProductCategory />} />
+      <Route path="/flash-sale/:flashSaleId" element={<ProductFlashSale />} />
+      <Route path="/checkout" element={<CheckoutPage />} />
+      <Route path="/my-orders" element={<MyOrdersPage />} />
+      <Route path="/my-orders/:orderId" element={<OrderDetailPage />} />
+
+      {/* ✅ HỆ THỐNG POS - Di chuyển sang /admin */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute isAuthenticated={isLoggedIn}>
+            <Layout
+              currentUser={currentUser}
+              onLogout={() => {
+                setIsLoggedIn(false);
+                setCurrentUser(null);
+              }}
+            />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/admin/pos" replace />} />
+        <Route
+          path="pos"
+          element={
+            <POSSection
+              activeOrders={activeOrders}
+              currentOrderId={currentOrderId}
+              setCurrentOrderId={setCurrentOrderId}
+              createNewOrder={createNewOrder}
+              deleteOrder={deleteOrder}
+              addToCart={addToCart}
+              updateQuantity={updateQuantity}
+              removeFromCart={removeFromCart}
+              updateCustomerName={updateCustomerName}
+              getTotal={getTotal}
+              completeOrder={completeOrder}
+              completeOrderWithStatus={completeOrderWithStatus as any}
+              getCurrentOrder={getCurrentOrderFn}
+              posBranchId={posBranchId}
+              setPosBranchId={setPosBranchId}
+              currentUser={currentUser}
+              replaceCurrentOrderItems={replaceCurrentOrderItems as any}
+            />
+          }
+        />
+
+        <Route path="orders" element={<OrdersSection />} />
+        <Route path="products" element={<ProductInputSection />} />
+        <Route path="inventory" element={<InventorySection />} />
+        <Route path="warehouse" element={<WarehouseSection />} />
+        <Route path="customers" element={<CustomersSection />} />
+        <Route path="shop-settings" element={<ShopSettings branchId={posBranchId} />} />
+        <Route path="flash-sales-admin" element={<FlashSalesAdminSection />} />
+      </Route>
+
+      {/* ✅ Redirect các đường dẫn không tồn tại về trang chủ */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
 };
 
 const App: React.FC = () => (
